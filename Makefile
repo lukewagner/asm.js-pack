@@ -1,12 +1,12 @@
 default: out/asmjspack out/asmjsunpack
 
-out/asmjspack: pack.cpp shared.h cashew/parser.h cashew/parser.cpp cashew/istring.h Makefile
+out/asmjspack: asmjspack.cpp pack.cpp shared.h cashew/parser.h cashew/parser.cpp cashew/istring.h Makefile
 	mkdir -p out
-	c++ -O3 -g -std=c++11 -Wall -pedantic pack.cpp cashew/parser.cpp -o out/asmjspack
+	c++ -O3 -g -std=c++11 -Wall -pedantic asmjspack.cpp pack.cpp cashew/parser.cpp -o out/asmjspack
 
-out/asmjsunpack: unpack.cpp shared.h Makefile
+out/asmjsunpack: asmjsunpack.cpp unpack.cpp shared.h Makefile
 	mkdir -p out
-	c++ -O3 -g -std=c++11 -Wall -pedantic unpack.cpp -o out/asmjsunpack
+	c++ -O3 -g -std=c++11 -Wall -pedantic asmjsunpack.cpp unpack.cpp -o out/asmjsunpack
 
 .PHONY: test
 test: out/asmjspack out/asmjsunpack
