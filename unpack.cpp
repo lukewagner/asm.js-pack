@@ -5,6 +5,7 @@
 #include "shared.h"
 
 #include <algorithm>
+#include <cstring>
 
 using namespace std;
 
@@ -67,23 +68,29 @@ class Utf8Writer
 {
   uint8_t* cur_;
 
-  // Maintain a not-particularly-optimized auto-growing buffer. The idea is that when you
-  // asmjspack, you do a dry run of asmjs::unpack just to see the final size. Then this size gets
-  // baked into the loader so that the emscripten-compiled asmjs::unpack can drop all bounds checks
-  // and just preallocate the right size. This behavior will be controlled by an #ifdef EMSCRIPTEN
-  // so that the release asm.js build just manipulates a single pointer w/o any bounds checks,
-  // vector or resizing.
+#ifdef CHECKED_OUTPUT_SIZE
+  uint8_t* limit_;
   vector<uint8_t> bytes_;
-  void check_write(size_t bytes_to_write)
+
+  void check_write(int32_t bytes_to_write)
   {
+    if (limit_ - cur_ >= bytes_to_write)
+      return;
+
     size_t cur_off = cur_ - bytes_.data();
-    size_t next_off = cur_off + bytes_to_write;
-    assert(next_off >= cur_off);
-    if (next_off >= bytes_.size()) {
-      bytes_.resize(next_off + 1);
-      cur_ = bytes_.data() + cur_off;
-    }
+    bytes_.resize(cur_off + bytes_to_write + 16*1024);
+    cur_ = bytes_.data() + cur_off;
+    limit_ = bytes_.data() + bytes_.size();
   }
+#else
+  uint8_t* const begin_;
+  const uint32_t unpacked_size_;
+
+  void inline check_write(size_t bytes_to_write)
+  {
+    assert((cur_ - begin_) + bytes_to_write <= unpacked_size_);
+  }
+#endif
 
   // In the encoded format, variables are named by dense indices. A straight ASCII-decimal encoding
   // would only use 10 of the 64 possible single-byte UTF8 JS identifiers and thus generate longer
@@ -93,19 +100,19 @@ class Utf8Writer
   template <uint32_t FirstCharRange>
   void indexed_name(uint32_t i)
   {
-    check_write(100);
-
     // Take advantage of power-of-two length of iden_chars to replace slow integer division and
     // modulus operations with fast bitwise operations.
     static_assert(sizeof(iden_chars) == 64, "assumed below");
 
     if (i < FirstCharRange) {
+      check_write(1);
       *cur_++ = iden_chars[i];
       return;
     }
     i -= FirstCharRange;
 
     if (i < FirstCharRange * 64) {
+      check_write(2);
       *cur_++ = iden_chars[i >> 6];
       *cur_++ = iden_chars[i & 0x3f];
 
@@ -113,38 +120,50 @@ class Utf8Writer
       assert(iden_chars[0x205>>6] == 'i' && iden_chars[0x205&0x3f] == 'f');
       assert(iden_chars[0x20d>>6] == 'i' && iden_chars[0x20d&0x3f] == 'n');
       assert(iden_chars[0x0ce>>6] == 'd' && iden_chars[0x0ce&0x3f] == 'o');
-      if (FirstCharRange < NextCharRange && (i == 0x205 || i == 0x20d || i == 0x0ce))
+      if (FirstCharRange < NextCharRange && (i == 0x205 || i == 0x20d || i == 0x0ce)) {
+        check_write(1);
         *cur_++ = '_';
+      }
       return;
     }
     i -= FirstCharRange * 64;
 
     // Instead of trying to catch every >2 letter keyword, just inject a _.
-    if (FirstCharRange < NextCharRange)
+    if (FirstCharRange < NextCharRange) {
+      check_write(1);
       *cur_++ = '_';
+    }
 
     uint8_t* begin = cur_;
     do {
+      check_write(1);
       *cur_++ = iden_chars[i & 0x3f];
       i = i >> 6;
     } while (i >= FirstCharRange * 64);
+    check_write(2);
     *cur_++ = iden_chars[i & 0x3f];
     *cur_++ = iden_chars[i >> 6];
     reverse(begin, cur_);
   }
 
 public:
-  Utf8Writer()
-  {
-    bytes_.resize(16);
-    cur_ = bytes_.data();
-  }
 
-  vector<uint8_t>&& finish()
+#ifdef CHECKED_OUTPUT_SIZE
+  Utf8Writer() : cur_(nullptr), limit_(nullptr) {}
+
+  vector<uint8_t> finish()
   {
     bytes_.resize(cur_ - bytes_.data());
     return move(bytes_);
   }
+#else
+  Utf8Writer(uint32_t sz, uint8_t* begin) : cur_(begin), begin_(begin), unpacked_size_(sz) {}
+
+  void finish()
+  {
+    assert(unpacked_size_ == cur_ - begin_);
+  }
+#endif
 
   bool has_token_ambiguity(char c)
   {
@@ -183,9 +202,9 @@ public:
       return;
     }
 
-    check_write(100);
     uint8_t *begin = cur_;
     do {
+      check_write(1);
       *cur_++ = '0' + u32 % 10;
       u32 /= 10;
     } while (u32 > 0);
@@ -204,9 +223,15 @@ public:
 
   void float32(double f)
   {
+    static const unsigned N = 100;
+    char buf[N];
+    uint32_t len = snprintf(buf, N, "%g", (double)f);
+
     name(HotStdLib::FRound);
     ascii('(');
-    cur_ += sprintf(reinterpret_cast<char*>(cur_), "%g", (double)f);
+    check_write(len);
+    memcpy(cur_, buf, len);
+    cur_ += len;
     ascii(')');
   }
 
@@ -216,21 +241,32 @@ public:
       ascii('-');
       d = -d;
     }
-    check_write(100);
+
+    static const unsigned N = 100;
+    char buf[N];
+    uint32_t len = snprintf(buf, N, "%g", d);
+
+    check_write(len);
+    memcpy(cur_, buf, len);
     uint8_t *beg = cur_;
-    cur_ += sprintf(reinterpret_cast<char*>(cur_), "%g", d);
+    cur_ += len;
+
     for (uint8_t* p = beg; p != cur_; ++p) {
       if (*p == '.')
         return;
     }
+
     for (uint8_t* p = beg; p != cur_; ++p) {
       if (*p == 'e' || *p == 'E') {
+        check_write(1);
         for (uint8_t* q = cur_++; q != p; q--)
           *q = *(q - 1);
         *p = '.';
         return;
       }
     }
+
+    check_write(1);
     *cur_++ = '.';
   }
 
@@ -278,11 +314,11 @@ template <>
 void
 Utf8Writer::ascii(const char (&str)[2])
 {
-  check_write(1);
   if (has_token_ambiguity(str[0]) && cur_[-1] == str[0]) {
     check_write(1);
     *cur_++ = ' ';
   }
+  check_write(1);
   *cur_++ = str[0];
   assert(!str[1]);
 }
@@ -291,11 +327,11 @@ template <>
 void
 Utf8Writer::ascii(const char (&str)[3])
 {
-  check_write(2);
   if (has_token_ambiguity(str[0]) && cur_[-1] == str[0]) {
     check_write(1);
     *cur_++ = ' ';
   }
+  check_write(2);
   *cur_++ = str[0];
   *cur_++ = str[1];
   assert(!str[2]);
@@ -305,11 +341,11 @@ template <>
 void
 Utf8Writer::ascii(const char (&str)[4])
 {
-  check_write(3);
   if (has_token_ambiguity(str[0]) && cur_[-1] == str[0]) {
     check_write(1);
     *cur_++ = ' ';
   }
+  check_write(3);
   *cur_++ = str[0];
   *cur_++ = str[1];
   *cur_++ = str[2];
@@ -349,10 +385,22 @@ public:
   In read;
   Utf8Writer write;
 
+#ifdef CHECKED_OUTPUT_SIZE
   State(const uint8_t* in)
   : num_labels_(0)
   , read(in)
-  {}
+  {
+    (void)read.fixed_width<uint32_t>();
+  }
+#else
+  State(const uint8_t* in, uint32_t out_size, uint8_t* out)
+  : num_labels_(0)
+  , read(in)
+  , write(out_size, out)
+  {
+    assert(out_size == read.fixed_width<uint32_t>());
+  }
+#endif
 
   void set_sigs(vector<Signature>&& sigs)
   {
@@ -2025,11 +2073,9 @@ import_hot_stdlib(State& s, HotStdLib global, const char (&import)[N])
   s.write.ascii(";\n");
 }
 
-vector<uint8_t>
-unpack(const uint8_t* in)
+void
+unpack(State& s)
 {
-  State s(in);
-
   s.write.ascii("function asmModule(");
   s.write.name(StdLib::stdlib);
   s.write.ascii(',');
@@ -2076,9 +2122,36 @@ unpack(const uint8_t* in)
   export_section(s);
 
   s.write.ascii("}\n");
-
-  return s.write.finish();
 }
 
 }  // namespace asmjs
+
+#ifdef CHECKED_OUTPUT_SIZE
+
+vector<uint8_t>
+asmjs::unpack(const uint8_t* packed)
+{
+  State s(packed);
+  unpack(s);
+  return s.write.finish();
+}
+
+#else
+
+uint32_t
+asmjs::read_unpacked_size(const uint8_t* packed)
+{
+  In in(packed);
+  return in.fixed_width<uint32_t>();
+}
+
+void
+asmjs::unpack(const uint8_t* packed, uint32_t unpacked_size, uint8_t* unpacked)
+{
+  State s(packed, unpacked_size, unpacked);
+  unpack(s);
+  s.write.finish();
+}
+
+#endif
 

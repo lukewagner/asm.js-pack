@@ -2646,6 +2646,9 @@ write_export_section(Module& m)
 void
 write_module(Module& m)
 {
+  // Bogus unpacked-size; to be patched in patch_unpacked_size.
+  m.write().fixed_width<uint32_t>(UINT32_MAX);
+
   write_constant_pool_section(m);
   write_signature_section(m);
   write_function_import_section(m);
@@ -2654,14 +2657,6 @@ write_module(Module& m)
   write_function_pointer_tables(m);
   write_function_definition_section(m);
   write_export_section(m);
-}
-
-void
-pack(ostream& os, const FuncNode& module)
-{
-  Module m(os);
-  analyze_module(m, module);
-  write_module(m);
 }
 
 // =================================================================================================
@@ -2835,8 +2830,10 @@ struct AstBuilder
   }
 };
 
-const FuncNode&
-parse(char* src)
+}  // namespace asmjs
+
+const asmjs::FuncNode&
+asmjs::parse(char* src)
 {
   const AstNode* ast = cashew::Parser<AstNodePtr, AstBuilder>().parseToplevel(src);
   const TopLevelNode& top = ast->as<TopLevelNode>();
@@ -2851,5 +2848,18 @@ parse(char* src)
   return module_func;
 }
 
-}  // namespace asmjs
+void
+asmjs::patch_unpacked_size(std::ostream& os, uint32_t unpacked_size)
+{
+  os.seekp(0);
+  Out out(os);
+  out.fixed_width<uint32_t>(unpacked_size);
+}
 
+void
+asmjs::pack(ostream& os, const asmjs::FuncNode& module)
+{
+  Module m(os);
+  analyze_module(m, module);
+  write_module(m);
+}

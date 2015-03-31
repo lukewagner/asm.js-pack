@@ -6,7 +6,17 @@
 
 namespace asmjs {
 
-std::vector<uint8_t> unpack(const uint8_t* in);
+// TODO: comment
+#ifdef CHECKED_OUTPUT_SIZE
+
+std::vector<uint8_t> unpack(const uint8_t* packed);
+
+#else
+
+uint32_t read_unpacked_size(const uint8_t* packed);
+void unpack(const uint8_t* packed, uint32_t unpacked_size, uint8_t* unpacked);
+
+#endif
 
 }  // namespace asmjs
 #endif  // unpack_h_

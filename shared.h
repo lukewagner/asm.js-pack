@@ -272,7 +272,8 @@ enum class RType : uint8_t
   Void
 };
 
-RType to_rtype(Type t)
+inline RType
+to_rtype(Type t)
 {
   return RType(t);
 }
@@ -708,7 +709,7 @@ In::is_next_node_block()
   return Stmt(*cur_) == Stmt::Block;
 }
 
-void
+inline void
 Out::c_str(const char* p)
 {
   do {

@@ -17,20 +17,25 @@ try
     return -1;
   }
 
+  // Read in packed .asm file bytes.
   vector<uint8_t> in_bytes;
-
   ifstream in_stream(argv[1], ios::binary | ios::ate);
   in_stream.exceptions(ios::failbit | ios::badbit);
   in_bytes.resize(in_stream.tellg());
   in_stream.seekg(0);
-  in_stream.read(reinterpret_cast<char*>(in_bytes.data()), in_bytes.size());
+  in_stream.read((char*)in_bytes.data(), in_bytes.size());
   in_stream.close();
 
-  vector<uint8_t> out_bytes = asmjs::unpack(in_bytes.data());
+  // Unpack .asm file into utf8 chars.
+  vector<uint8_t> out_bytes(asmjs::read_unpacked_size(in_bytes.data()));
+  asmjs::unpack(in_bytes.data(), out_bytes.size(), out_bytes.data());
 
-  ofstream out(argv[2], ios::binary);
-  out.exceptions(ios::failbit | ios::badbit);
-  out.write(reinterpret_cast<char*>(out_bytes.data()), out_bytes.size());
+  // Write the utf8 chars out to a .js file.
+  ofstream out_stream(argv[2], ios::binary);
+  out_stream.exceptions(ios::failbit | ios::badbit);
+  out_stream.write((char*)out_bytes.data(), out_bytes.size());
+  out_stream.close();
+
   return 0;
 }
 catch(const ios::failure& err)
