@@ -2328,6 +2328,8 @@ void
 write_prefix(Module& m, Function& f, const PrefixNode& prefix, Ctx ctx)
 {
   if (is_double_coerced_call(prefix)) {
+    if (!prefix.expr.is_bad())
+      m.write().code(prefix.expr);
     write_call(m, f, prefix.kid.as<CallNode>(), ctx);
     return;
   }
