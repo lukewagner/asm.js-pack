@@ -1465,12 +1465,8 @@ void
 analyze_call_import(Module& m, Function& f, CallNode& call, RType ret_type)
 {
   call.kind = CallNode::Import;
-  switch (ret_type) {
-    case RType::I32: call.expr = I32::CallImp; call.stmt = Stmt::I32CallImp; break;
-    case RType::F64: call.expr = F64::CallImp; call.stmt = Stmt::F64CallImp; break;
-    case RType::Void: call.expr = Void::CallImp; call.stmt = Stmt::VoidCallImp; break;
-    case RType::F32: unreachable<void>();
-  }
+  call.expr = type_switch(ret_type, I32::CallImp, F32::Bad, F64::CallImp, Void::CallImp);
+  call.stmt = Stmt::CallImp;
 
   Signature sig(ret_type);
   for (AstNode* arg = call.first; arg; arg = arg->next)
@@ -1485,12 +1481,8 @@ analyze_call_internal(Module& m, Function& f, CallNode& call, RType ret_type)
   assert(call.callee.is<NameNode>());
 
   call.kind = CallNode::Internal;
-  switch (ret_type) {
-    case RType::I32: call.expr = I32::CallInt; call.stmt = Stmt::I32CallInt; break;
-    case RType::F32: call.expr = F32::CallInt; call.stmt = Stmt::F32CallInt; break;
-    case RType::F64: call.expr = F64::CallInt; call.stmt = Stmt::F64CallInt; break;
-    case RType::Void: call.expr = Void::CallInt; call.stmt = Stmt::VoidCallInt; break;
-  }
+  call.expr = type_switch(ret_type, I32::CallInt, F32::CallInt, F64::CallInt, Void::CallInt);
+  call.stmt = Stmt::CallInt;
 
   for (AstNode* arg = call.first; arg; arg = arg->next)
     analyze_expr(m, f, *arg);
@@ -1500,12 +1492,8 @@ void
 analyze_call_indirect(Module& m, Function& f, CallNode& call, RType ret_type)
 {
   call.kind = CallNode::Indirect;
-  switch (ret_type) {
-    case RType::I32: call.expr = I32::CallInd; call.stmt = Stmt::I32CallInd; break;
-    case RType::F32: call.expr = F32::CallInd; call.stmt = Stmt::F32CallInd; break;
-    case RType::F64: call.expr = F64::CallInd; call.stmt = Stmt::F64CallInd; break;
-    case RType::Void: call.expr = Void::CallInd; call.stmt = Stmt::VoidCallInd; break;
-  }
+  call.expr = type_switch(ret_type, I32::CallInd, F32::CallInd, F64::CallInd, Void::CallInd);
+  call.stmt = Stmt::CallInd;
 
   assert(call.callee.is<IndexNode>());
   IndexNode& index = call.callee.as<IndexNode>();
@@ -1767,8 +1755,8 @@ analyze_assign(Module& m, Function& f, BinaryNode& binary)
     lhs.index = f.local_index(lhs.str);
     assert(rhs.type() == f.local_type(lhs.index));
     binary.expr = type_switch(rhs.type(), I32::SetLoc, F32::SetLoc, F64::SetLoc);
-    binary.stmt = type_switch(rhs.type(), Stmt::I32SetLoc, Stmt::F32SetLoc, Stmt::F64SetLoc);
-    binary.stmt_with_imm = type_switch(rhs.type(), StmtWithImm::I32SetLoc, StmtWithImm::F32SetLoc, StmtWithImm::F64SetLoc);
+    binary.stmt = Stmt::SetLoc;
+    binary.stmt_with_imm = StmtWithImm::SetLoc;
     return rhs;
   }
 
@@ -1776,7 +1764,8 @@ analyze_assign(Module& m, Function& f, BinaryNode& binary)
   lhs.index = g.index;
   assert(rhs.type() == g.type);
   binary.expr = type_switch(rhs.type(), I32::SetGlo, F32::SetGlo, F64::SetGlo);
-  binary.stmt = type_switch(rhs.type(), Stmt::I32SetGlo, Stmt::F32SetGlo, Stmt::F64SetGlo);
+  binary.stmt = Stmt::SetGlo;
+  binary.stmt_with_imm = StmtWithImm::SetGlo;
   return rhs;
 }
 
@@ -2464,12 +2453,9 @@ write_expr(Module& m, Function& f, const AstNode& expr)
 void
 write_return(Module& m, Function& f, const ReturnNode& ret)
 {
-  if (!ret.expr) {
-    m.write().code(Stmt::Ret0);
-  } else {
-    m.write().code(Stmt::Ret1);
+  m.write().code(Stmt::Ret);
+  if (ret.expr)
     write_expr(m, f, *ret.expr);
-  }
 }
 
 void

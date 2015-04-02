@@ -372,7 +372,7 @@ class State
   vector<double> f64s_;
   uint32_t num_func_imps_;
   vector<FuncImportSignature> func_imp_sigs_;
-  uint32_t num_globals_;
+  vector<Type> global_types_;
   uint32_t func_name_base_;
   vector<uint32_t> func_sigs_;
   uint32_t func_ptr_table_name_base_;
@@ -380,6 +380,7 @@ class State
 
   uint32_t num_labels_;
   RType cur_ret_;
+  vector<Type> cur_local_types_;
 
 public:
   In read;
@@ -417,10 +418,10 @@ public:
     num_func_imps_ = num_func_imps;
     func_imp_sigs_ = move(func_imp_sigs);
   }
-  void set_num_globals(uint32_t num_globals)
+  void set_global_types(vector<Type>&& global_types)
   {
-    num_globals_ = num_globals;
-    func_name_base_ = num_func_imps_ + num_globals;
+    global_types_ = move(global_types);
+    func_name_base_ = num_func_imps_ + global_types_.size();
   }
   void set_funcs(vector<uint32_t>&& func_sigs)
   {
@@ -451,6 +452,7 @@ public:
 
   const vector<Signature>& sigs() const { return sigs_; }
   const Signature& sig(size_t i) const { return sigs_[i]; }
+  Type global_type(size_t i) { return global_types_[i]; }
   const FuncImportSignature& func_imp_sig(size_t i) const { return func_imp_sigs_[i]; }
   size_t num_funcs() const { return func_sigs_.size(); }
   const Signature& func_sig(size_t i) { return sigs_[func_sigs_[i]]; }
@@ -462,6 +464,8 @@ public:
 
   void set_cur_ret(RType ret) { cur_ret_ = ret; }
   RType cur_ret() const { return cur_ret_; }
+  vector<Type>& cur_local_types() { return cur_local_types_; }
+  Type cur_local_type(size_t i) const { return cur_local_types_[i]; }
 
   uint32_t push_label() { return num_labels_++; }
   void pop_label() { num_labels_--; }
@@ -523,37 +527,50 @@ global_section(State& s)
   uint32_t num_f32_import = s.read.imm_u32();
   uint32_t num_f64_import = s.read.imm_u32();
 
-  uint32_t global_index = 0;
-  for (uint32_t i = 0; i < num_i32_zero; i++, global_index++) {
+  uint32_t num_global_vars = num_i32_zero +
+                             num_f32_zero +
+                             num_f64_zero +
+                             num_i32_import +
+                             num_f32_import +
+                             num_f64_import;
+
+  vector<Type> global_types;
+  global_types.reserve(num_global_vars);
+
+  for (uint32_t i = 0; i < num_i32_zero; i++) {
     s.write.ascii("var ");
-    s.write_global_name(global_index);
+    s.write_global_name(global_types.size());
     s.write.ascii("=0;\n");
+    global_types.push_back(Type::I32);
   }
-  for (uint32_t i = 0; i < num_f32_zero; i++, global_index++) {
+  for (uint32_t i = 0; i < num_f32_zero; i++) {
     s.write.ascii("var ");
-    s.write_global_name(global_index);
+    s.write_global_name(global_types.size());
     s.write.ascii('=');
     s.write.name(HotStdLib::FRound);
     s.write.ascii("(0);\n");
+    global_types.push_back(Type::F32);
   }
-  for (uint32_t i = 0; i < num_f64_zero; i++, global_index++) {
+  for (uint32_t i = 0; i < num_f64_zero; i++) {
     s.write.ascii("var ");
-    s.write_global_name(global_index);
+    s.write_global_name(global_types.size());
     s.write.ascii("=0.;\n");
+    global_types.push_back(Type::F64);
   }
-  for (uint32_t i = 0; i < num_i32_import; i++, global_index++) {
+  for (uint32_t i = 0; i < num_i32_import; i++) {
     s.write.ascii("var ");
-    s.write_global_name(global_index);
+    s.write_global_name(global_types.size());
     s.write.ascii('=');
     s.write.name(StdLib::foreign);
     s.write.ascii('.');
     while (char c = s.read.single_char())
       s.write.ascii(c);
     s.write.ascii("|0;\n");
+    global_types.push_back(Type::I32);
   }
-  for (uint32_t i = 0; i < num_f32_import; i++, global_index++) {
+  for (uint32_t i = 0; i < num_f32_import; i++) {
     s.write.ascii("var ");
-    s.write_global_name(global_index);
+    s.write_global_name(global_types.size());
     s.write.ascii("=");
     s.write.name(HotStdLib::FRound);
     s.write.ascii('(');
@@ -562,20 +579,22 @@ global_section(State& s)
     while (char c = s.read.single_char())
       s.write.ascii(c);
     s.write.ascii(");\n");
+    global_types.push_back(Type::F32);
   }
-  for (uint32_t i = 0; i < num_f64_import; i++, global_index++) {
+  for (uint32_t i = 0; i < num_f64_import; i++) {
     s.write.ascii("var ");
-    s.write_global_name(global_index);
+    s.write_global_name(global_types.size());
     s.write.ascii("=+");
     s.write.name(StdLib::foreign);
     s.write.ascii('.');
     while (char c = s.read.single_char())
       s.write.ascii(c);
     s.write.ascii(";\n");
+    global_types.push_back(Type::F64);
   }
+  assert(global_types.size() == num_global_vars);
 
-  s.set_num_globals(num_i32_zero + num_f32_zero + num_f64_zero +
-                    num_i32_import + num_f32_import + num_f64_import);
+  s.set_global_types(move(global_types));
 }
 
 void
@@ -709,16 +728,16 @@ get_local(State& s)
   s.write.local_name(s.read.imm_u32());
 }
 
-template <RType T>
+template <Type T>
 void
 set_local(State& s, uint32_t imm)
 {
   s.write.local_name(imm);
   s.write.ascii('=');
-  expr<T>(s, accept_same(Prec::Assign));
+  expr<RType(T)>(s, accept_same(Prec::Assign));
 }
 
-template <RType T>
+template <Type T>
 void
 set_local(State& s, Prec prec, uint32_t imm)
 {
@@ -731,11 +750,28 @@ set_local(State& s, Prec prec, uint32_t imm)
   }
 }
 
-template <RType T>
+template <Type T>
 void
 set_local(State& s, Prec prec)
 {
   set_local<T>(s, prec, s.read.imm_u32());
+}
+
+void
+set_local(State& s, Prec prec, uint32_t imm)
+{
+  switch (s.cur_local_type(imm)) {
+    case Type::I32: set_local<Type::I32>(s, prec, imm); break;
+    case Type::F32: set_local<Type::F32>(s, prec, imm); break;
+    case Type::F64: set_local<Type::F64>(s, prec, imm); break;
+    default: unreachable<void>();
+  }
+}
+
+void
+set_local(State& s, Prec prec)
+{
+  set_local(s, prec, s.read.imm_u32());
 }
 
 void
@@ -744,26 +780,50 @@ get_global(State& s)
   s.write_global_name(s.read.imm_u32());
 }
 
-template <RType T>
+template <Type T>
 void
-set_global(State& s)
+set_global(State& s, uint32_t imm)
 {
-  s.write_global_name(s.read.imm_u32());
+  s.write_global_name(imm);
   s.write.ascii('=');
-  expr<T>(s, accept_same(Prec::Assign));
+  expr<RType(T)>(s, accept_same(Prec::Assign));
 }
 
-template <RType T>
+template <Type T>
 void
-set_global(State& s, Prec prec)
+set_global(State& s, Prec prec, uint32_t imm)
 {
   if (need_paren(prec, Prec::Assign)) {
     s.write.ascii('(');
-    set_global<T>(s);
+    set_global<T>(s, imm);
     s.write.ascii(')');
   } else {
-    set_global<T>(s);
+    set_global<T>(s, imm);
   }
+}
+
+template <Type T>
+void
+set_global(State& s, Prec prec)
+{
+  set_global<T>(s, prec, s.read.imm_u32());
+}
+
+void
+set_global(State& s, Prec prec, uint32_t imm)
+{
+  switch (s.global_type(imm)) {
+    case Type::I32: set_global<Type::I32>(s, prec, imm); break;
+    case Type::F32: set_global<Type::F32>(s, prec, imm); break;
+    case Type::F64: set_global<Type::F64>(s, prec, imm); break;
+    default: unreachable<void>();
+  }
+}
+
+void
+set_global(State& s, Prec prec)
+{
+  set_global(s, prec, s.read.imm_u32());
 }
 
 void
@@ -1251,55 +1311,89 @@ call_args(State& s, const vector<Type>& args)
 }
 
 void
-call_internal(State& s)
+call_internal(State& s, uint32_t func_index)
 {
-  uint32_t func_index = s.read.imm_u32();
   s.write_func_name(func_index);
   call_args(s, s.func_sig(func_index).args);
 }
 
 void
-call_internal_i32(State& s, Prec prec)
+call_internal_void(State& s)
+{
+  call_internal(s, s.read.imm_u32());
+}
+
+void
+call_internal_i32(State& s, Prec prec, uint32_t func_index)
 {
   assert(!need_paren(prec, Prec::Call));
   if (need_paren(prec, Prec::BitOr)) {
     s.write.ascii('(');
-    call_internal(s);
+    call_internal(s, func_index);
     s.write.ascii("|0)");
   } else {
-    call_internal(s);
+    call_internal(s, func_index);
     s.write.ascii("|0");
   }
 }
 
 void
-call_internal_f32(State& s, Prec prec)
+call_internal_i32(State& s, Prec prec)
+{
+  call_internal_i32(s, prec, s.read.imm_u32());
+}
+
+void
+call_internal_f32(State& s, Prec prec, uint32_t func_index)
 {
   assert(!need_paren(prec, Prec::Call));
   s.write.name(HotStdLib::FRound);
   s.write.ascii('(');
-  call_internal(s);
+  call_internal(s, func_index);
   s.write.ascii(')');
+}
+
+void
+call_internal_f32(State& s, Prec prec)
+{
+  call_internal_f32(s, prec, s.read.imm_u32());
+}
+
+void
+call_internal_f64(State& s, Prec prec, uint32_t func_index)
+{
+  assert(!need_paren(prec, Prec::Call));
+  if (need_paren(prec, Prec::Unary)) {
+    s.write.ascii("(+");
+    call_internal(s, func_index);
+    s.write.ascii(')');
+  } else {
+    s.write.ascii('+');
+    call_internal(s, func_index);
+  }
 }
 
 void
 call_internal_f64(State& s, Prec prec)
 {
-  assert(!need_paren(prec, Prec::Call));
-  if (need_paren(prec, Prec::Unary)) {
-    s.write.ascii("(+");
-    call_internal(s);
-    s.write.ascii(')');
-  } else {
-    s.write.ascii('+');
-    call_internal(s);
+  call_internal_f64(s, prec, s.read.imm_u32());
+}
+
+void
+call_internal(State& s, Prec prec)
+{
+  uint32_t func_index = s.read.imm_u32();
+  switch (s.func_sig(func_index).ret) {
+    case RType::I32: call_internal_i32(s, prec, func_index); break;
+    case RType::F32: call_internal_f32(s, prec, func_index); break;
+    case RType::F64: call_internal_f64(s, prec, func_index); break;
+    case RType::Void: call_internal(s, func_index); break;
   }
 }
 
 void
-call_indirect(State& s)
+call_indirect(State& s, uint32_t func_ptr_tbl_i)
 {
-  uint32_t func_ptr_tbl_i = s.read.imm_u32();
   const FuncPtrTable& func_ptr_table = s.func_ptr_table(func_ptr_tbl_i);
   s.write_func_ptr_table_name(func_ptr_tbl_i);
   s.write.ascii('[');
@@ -1311,48 +1405,84 @@ call_indirect(State& s)
 }
 
 void
-call_indirect_i32(State& s, Prec prec)
+call_indirect_void(State& s)
+{
+  call_indirect(s, s.read.imm_u32());
+}
+
+void
+call_indirect_i32(State& s, Prec prec, uint32_t func_ptr_tbl_i)
 {
   assert(!need_paren(prec, Prec::Call));
   if (need_paren(prec, Prec::BitOr)) {
     s.write.ascii('(');
-    call_indirect(s);
+    call_indirect(s, func_ptr_tbl_i);
     s.write.ascii("|0)");
   } else {
-    call_indirect(s);
+    call_indirect(s, func_ptr_tbl_i);
     s.write.ascii("|0");
   }
 }
 
 void
-call_indirect_f32(State& s, Prec prec)
+call_indirect_i32(State& s, Prec prec)
+{
+  call_indirect_i32(s, prec, s.read.imm_u32());
+}
+
+void
+call_indirect_f32(State& s, Prec prec, uint32_t func_ptr_tbl_i)
 {
   assert(!need_paren(prec, Prec::Call));
   s.write.name(HotStdLib::FRound);
   s.write.ascii('(');
-  call_indirect(s);
+  call_indirect(s, func_ptr_tbl_i);
   s.write.ascii(')');
 }
 
 void
-call_indirect_f64(State& s, Prec prec)
+call_indirect_f32(State& s, Prec prec)
+{
+  call_indirect_f32(s, prec, s.read.imm_u32());
+}
+
+void
+call_indirect_f64(State& s, Prec prec, uint32_t func_ptr_tbl_i)
 {
   assert(!need_paren(prec, Prec::Call));
   if (need_paren(prec, Prec::Unary)) {
     s.write.ascii('(');
     s.write.ascii('+');
-    call_indirect(s);
+    call_indirect(s, func_ptr_tbl_i);
     s.write.ascii(')');
   } else {
     s.write.ascii('+');
-    call_indirect(s);
+    call_indirect(s, func_ptr_tbl_i);
   }
 }
 
 void
-call_import(State& s)
+call_indirect_f64(State& s, Prec prec)
 {
-  const FuncImportSignature& func_imp_sig = s.func_imp_sig(s.read.imm_u32());
+  call_indirect_f64(s, prec, s.read.imm_u32());
+}
+
+void
+call_indirect(State& s, Prec prec)
+{
+  uint32_t func_ptr_tbl_i = s.read.imm_u32();
+  switch (s.sig(s.func_ptr_table(func_ptr_tbl_i).sig_index).ret) {
+    case RType::I32: call_indirect_i32(s, prec, func_ptr_tbl_i); break;
+    case RType::F32: call_indirect_f32(s, prec, func_ptr_tbl_i); break;
+    case RType::F64: call_indirect_f64(s, prec, func_ptr_tbl_i); break;
+    case RType::Void: call_indirect(s, func_ptr_tbl_i); break;
+  }
+}
+
+void
+call_import(State& s, uint32_t func_imp_sig_i)
+{
+  const FuncImportSignature& func_imp_sig = s.func_imp_sig(func_imp_sig_i);
   s.write_func_imp_name(func_imp_sig.func_imp_index);
   s.write.ascii('(');
   auto& args = s.sig(func_imp_sig.sig_index).args;
@@ -1372,28 +1502,58 @@ call_import(State& s)
 }
 
 void
-call_import_i32(State& s, Prec prec)
+call_import_void(State& s)
+{
+  call_import(s, s.read.imm_u32());
+}
+
+void
+call_import_i32(State& s, Prec prec, uint32_t func_imp_sig_i)
 {
   if (need_paren(prec, Prec::BitOr)) {
     s.write.ascii('(');
-    call_import(s);
+    call_import(s, func_imp_sig_i);
     s.write.ascii("|0)");
   } else {
-    call_import(s);
+    call_import(s, func_imp_sig_i);
     s.write.ascii("|0");
+  }
+}
+
+void
+call_import_i32(State& s, Prec prec)
+{
+  call_import_i32(s, prec, s.read.imm_u32());
+}
+
+void
+call_import_f64(State& s, Prec prec, uint32_t func_imp_sig_i)
+{
+  if (need_paren(prec, Prec::Unary)) {
+    s.write.ascii("(+");
+    call_import(s, func_imp_sig_i);
+    s.write.ascii(')');
+  } else {
+    s.write.ascii('+');
+    call_import(s, func_imp_sig_i);
   }
 }
 
 void
 call_import_f64(State& s, Prec prec)
 {
-  if (need_paren(prec, Prec::Unary)) {
-    s.write.ascii("(+");
-    call_import(s);
-    s.write.ascii(')');
-  } else {
-    s.write.ascii('+');
-    call_import(s);
+  call_import_f64(s, prec, s.read.imm_u32());
+}
+
+void
+call_import(State& s, Prec prec)
+{
+  uint32_t func_imp_sig_i = s.read.imm_u32();
+  switch (s.sig(s.func_imp_sig(func_imp_sig_i).sig_index).ret) {
+    case RType::I32: call_import_i32(s, prec, func_imp_sig_i); break;
+    case RType::F32: unreachable<void>();
+    case RType::F64: call_import_f64(s, prec, func_imp_sig_i); break;
+    case RType::Void: call_import(s, func_imp_sig_i); break;
   }
 }
 
@@ -1497,8 +1657,8 @@ expr_i32(State& s, Prec prec, Ctx ctx)
       case I32::LitPool:  s.write.int32(s.i32s()[s.read.imm_u32()]); break;
       case I32::GetLoc:   get_local(s); break;
       case I32::GetGlo:   get_global(s); break;
-      case I32::SetLoc:   set_local<RType::I32>(s, prec); break;
-      case I32::SetGlo:   set_global<RType::I32>(s, prec); break;
+      case I32::SetLoc:   set_local<Type::I32>(s, prec); break;
+      case I32::SetGlo:   set_global<Type::I32>(s, prec); break;
       case I32::SLoad8:   load_i32(s, prec, ctx, HotStdLib::HeapS8, 0); break;
       case I32::ULoad8:   load_i32(s, prec, ctx, HotStdLib::HeapU8, 0); break;
       case I32::SLoad16:  load_i32(s, prec, ctx, HotStdLib::HeapS16, 1); break;
@@ -1583,8 +1743,8 @@ expr_f32(State& s, Prec prec, Ctx ctx)
       case F32::LitPool:  s.write.float32(s.f32s()[s.read.imm_u32()]); break;
       case F32::GetLoc:   get_local(s); break;
       case F32::GetGlo:   get_global(s); break;
-      case F32::SetLoc:   set_local<RType::F32>(s, prec); break;
-      case F32::SetGlo:   set_global<RType::F32>(s, prec); break;
+      case F32::SetLoc:   set_local<Type::F32>(s, prec); break;
+      case F32::SetGlo:   set_global<Type::F32>(s, prec); break;
       case F32::Load:     load_f32(s, prec, ctx); break;
       case F32::StoreF32: store_f32(s, prec); break;
       case F32::StoreF64: store_f32_f64(s, prec); break;
@@ -1627,8 +1787,8 @@ expr_f64(State& s, Prec prec, Ctx ctx)
       case F64::LitPool:  s.write.float64(s.f64s()[s.read.imm_u32()]); break;
       case F64::GetLoc:   get_local(s); break;
       case F64::GetGlo:   get_global(s); break;
-      case F64::SetLoc:   set_local<RType::F64>(s, prec); break;
-      case F64::SetGlo:   set_global<RType::F64>(s, prec); break;
+      case F64::SetLoc:   set_local<Type::F64>(s, prec); break;
+      case F64::SetGlo:   set_global<Type::F64>(s, prec); break;
       case F64::Load:     load_f64(s, prec, ctx); break;
       case F64::StoreF32: store_f64_f32(s, prec); break;
       case F64::StoreF64: store_f64(s, prec); break;
@@ -1678,9 +1838,9 @@ expr_void(State& s, Prec prec, Ctx ctx)
 {
   assert(!need_paren(prec, Prec::Call));
   switch (s.read.void_expr()) {
-    case Void::CallInt: call_internal(s); break;
-    case Void::CallInd: call_indirect(s); break;
-    case Void::CallImp: call_import(s); break;
+    case Void::CallInt: call_internal_void(s); break;
+    case Void::CallInd: call_indirect_void(s); break;
+    case Void::CallImp: call_import_void(s); break;
     default: unreachable<void>();
   }
 }
@@ -1688,14 +1848,14 @@ expr_void(State& s, Prec prec, Ctx ctx)
 void stmt(State& s);
 
 void
-return1_stmt(State& s)
+return_stmt(State& s)
 {
-  s.write.ascii("return ");
+  s.write.ascii("return");
   switch (s.cur_ret()) {
-    case RType::I32: signed_expr(s, Prec::Lowest, Signed); break;
-    case RType::F32: expr<RType::F32>(s, Prec::Lowest); break;
-    case RType::F64: expr<RType::F64>(s, Prec::Lowest); break;
-    case RType::Void: unreachable<void>();
+    case RType::I32: s.write.ascii(' '); signed_expr(s, Prec::Lowest, Signed); break;
+    case RType::F32: s.write.ascii(' '); expr<RType::F32>(s, Prec::Lowest); break;
+    case RType::F64: s.write.ascii(' '); expr<RType::F64>(s, Prec::Lowest); break;
+    case RType::Void: break;
   }
   s.write.ascii(";\n");
 }
@@ -1846,12 +2006,8 @@ stmt(State& s)
   uint8_t imm;
   if (s.read.code(&stmt, &stmt_with_imm, &imm)) {
     switch (stmt) {
-      case Stmt::I32SetLoc: set_local<RType::I32>(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::F32SetLoc: set_local<RType::F32>(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::F64SetLoc: set_local<RType::F64>(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::I32SetGlo: set_global<RType::I32>(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::F32SetGlo: set_global<RType::F32>(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::F64SetGlo: set_global<RType::F64>(s, Prec::Lowest); s.write.ascii(";\n"); break;
+      case Stmt::SetLoc: set_local(s, Prec::Lowest); s.write.ascii(";\n"); break;
+      case Stmt::SetGlo: set_global(s, Prec::Lowest); s.write.ascii(";\n"); break;
       case Stmt::I32Store8: store_i8(s, Prec::Lowest); s.write.ascii(";\n"); break;
       case Stmt::I32Store16: store_i16(s, Prec::Lowest); s.write.ascii(";\n"); break;
       case Stmt::I32Store32: store_i32(s, Prec::Lowest); s.write.ascii(";\n"); break;
@@ -1859,19 +2015,10 @@ stmt(State& s)
       case Stmt::F32StoreF64: store_f32_f64(s, Prec::Lowest); s.write.ascii(";\n"); break;
       case Stmt::F64StoreF32: store_f64_f32(s, Prec::Lowest); s.write.ascii(";\n"); break;
       case Stmt::F64StoreF64: store_f64(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::I32CallInt: call_internal_i32(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::F32CallInt: call_internal_f32(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::F64CallInt: call_internal_f64(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::VoidCallInt: call_internal(s); s.write.ascii(";\n"); break;
-      case Stmt::I32CallInd: call_indirect_i32(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::F32CallInd: call_indirect_f32(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::F64CallInd: call_indirect_f64(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::VoidCallInd: call_indirect(s); s.write.ascii(";\n"); break;
-      case Stmt::I32CallImp: call_import_i32(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::F64CallImp: call_import_f64(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::VoidCallImp: call_import(s); s.write.ascii(";\n"); break;
-      case Stmt::Ret0: s.write.ascii("return;\n"); return;
-      case Stmt::Ret1: return1_stmt(s); return;
+      case Stmt::CallInt: call_internal(s, Prec::Lowest); s.write.ascii(";\n"); break;
+      case Stmt::CallInd: call_indirect(s, Prec::Lowest); s.write.ascii(";\n"); break;
+      case Stmt::CallImp: call_import(s, Prec::Lowest); s.write.ascii(";\n"); break;
+      case Stmt::Ret: return_stmt(s); return;
       case Stmt::Block: block_stmt(s); return;
       case Stmt::IfThen: if_stmt(s); return;
       case Stmt::IfElse: if_else_stmt(s); return;
@@ -1887,9 +2034,8 @@ stmt(State& s)
     }
   } else {
     switch (stmt_with_imm) {
-      case StmtWithImm::I32SetLoc: set_local<RType::I32>(s, Prec::Lowest, imm); s.write.ascii(";\n"); break;
-      case StmtWithImm::F32SetLoc: set_local<RType::F32>(s, Prec::Lowest, imm); s.write.ascii(";\n"); break;
-      case StmtWithImm::F64SetLoc: set_local<RType::F64>(s, Prec::Lowest, imm); s.write.ascii(";\n"); break;
+      case StmtWithImm::SetLoc: set_local(s, Prec::Lowest, imm); s.write.ascii(";\n"); break;
+      case StmtWithImm::SetGlo: set_global(s, Prec::Lowest, imm); s.write.ascii(";\n"); break;
       default: unreachable<void>();
     }
   }
@@ -1905,6 +2051,9 @@ function_definition(State& s, size_t func_index)
   const Signature& sig = s.func_sig(func_index);
   s.set_cur_ret(sig.ret);
 
+  vector<Type>& local_types = s.cur_local_types();
+  local_types.clear();
+
   size_t num_args = sig.args.size();
   if (num_args > 0) {
     for (uint32_t arg_index = 0;;) {
@@ -1918,9 +2067,11 @@ function_definition(State& s, size_t func_index)
   s.write.ascii("){\n");
   if (num_args > 0) {
     for (uint32_t arg_index = 0; arg_index < num_args; arg_index++) {
+      Type type = sig.args[arg_index];
       s.write.local_name(arg_index);
       s.write.ascii('=');
-      switch (sig.args[arg_index]) {
+      local_types.push_back(type);
+      switch (type) {
         case Type::I32:
           s.write.local_name(arg_index);
           s.write.ascii("|0");
@@ -1943,12 +2094,13 @@ function_definition(State& s, size_t func_index)
   }
 
   uint32_t num_vars = s.read.imm_u32();
-  uint32_t num_locals = num_args + num_vars;
   if (num_vars > 0) {
     s.write.ascii("var ");
-    for (uint32_t local_index = num_args;;) {
+    uint32_t var_index = 0;
+    while (true) {
       Type type = s.read.type();
-      s.write.local_name(local_index);
+      s.write.local_name(local_types.size());
+      local_types.push_back(type);
       switch (type) {
         case Type::I32:
           s.write.ascii("=0");
@@ -1963,10 +2115,9 @@ function_definition(State& s, size_t func_index)
           break;
         default: abort();
       }
-      if (++local_index == num_locals)
+      if (++var_index == num_vars)
         break;
-      else
-        s.write.ascii(',');
+      s.write.ascii(',');
     }
     s.write.ascii(";\n");
   }

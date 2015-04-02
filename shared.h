@@ -15,12 +15,8 @@ namespace asmjs {
 
 enum class Stmt : uint8_t
 {
-  I32SetLoc,
-  F32SetLoc,
-  F64SetLoc,
-  I32SetGlo,
-  F32SetGlo,
-  F64SetGlo,
+  SetLoc,
+  SetGlo,
   I32Store8,
   I32Store16,
   I32Store32,
@@ -28,19 +24,10 @@ enum class Stmt : uint8_t
   F32StoreF64,
   F64StoreF32,
   F64StoreF64,
-  I32CallInt,
-  F32CallInt,
-  F64CallInt,
-  VoidCallInt,
-  I32CallInd,
-  F32CallInd,
-  F64CallInd,
-  VoidCallInd,
-  I32CallImp,
-  F64CallImp,
-  VoidCallImp,
-  Ret0,
-  Ret1,
+  CallInt,
+  CallInd,
+  CallImp,
+  Ret,
   Block,
   IfThen,
   IfElse,
@@ -58,9 +45,10 @@ enum class Stmt : uint8_t
 
 enum class StmtWithImm : uint8_t
 {
-  I32SetLoc,
-  F32SetLoc,
-  F64SetLoc,
+  SetLoc,
+  SetGlo,
+  Reseved1,
+  Reseved2,
 
   Bad
 };
@@ -152,6 +140,7 @@ enum class I32WithImm : uint8_t
   LitPool,
   LitImm,
   GetLoc,
+  Reserved,
 
   Bad
 };
@@ -191,6 +180,8 @@ enum class F32WithImm : uint8_t
 {
   LitPool,
   GetLoc,
+  Reserved0,
+  Reserved1,
 
   Bad
 };
@@ -244,6 +235,8 @@ enum class F64WithImm : uint8_t
 {
   LitPool,
   GetLoc,
+  Reserved0,
+  Reserved1,
 
   Bad
 };
@@ -402,6 +395,18 @@ type_switch(Type type, T i32, T f32, T f64)
     case Type::F64: return f64;
   }
   return unreachable<T>();
+}
+
+inline Expr
+type_switch(RType type, I32 i32, F32 f32, F64 f64, Void v)
+{
+  switch (type) {
+    case RType::I32: return i32;
+    case RType::F32: return f32;
+    case RType::F64: return f64;
+    case RType::Void: return v;
+  }
+  return unreachable<Expr>();
 }
 
 template <class T>
