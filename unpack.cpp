@@ -830,12 +830,14 @@ set_global(State& s, Prec prec)
 }
 
 void
-index(State& s, HotStdLib name, unsigned shift)
+index(State& s, HotStdLib name, unsigned shift, bool has_offset)
 {
   s.write.name(name);
   s.write.ascii('[');
+  uint32_t offset = has_offset ? s.read.imm_u32() : 0;
   uint32_t u32;
   if (s.read.if_i32_lit(s.i32s(), &u32)) {
+    u32 += offset;
     if (u32 < 16*1024*1024) {
       s.write.uint32(u32 >> shift);
     } else {
@@ -844,7 +846,13 @@ index(State& s, HotStdLib name, unsigned shift)
       s.write.uint32(shift);
     }
   } else {
-    expr<RType::I32>(s, accept_same(Prec::Shifts), Ctx::ToI32);
+    if (offset) {
+      expr<RType::I32>(s, accept_same(Prec::AddSub), Ctx::AddSub);
+      s.write.ascii('+');
+      s.write.uint32(offset);
+    } else {
+      expr<RType::I32>(s, accept_same(Prec::Shifts), Ctx::ToI32);
+    }
     s.write.ascii(">>");
     s.write.uint32(shift);
   }
@@ -852,105 +860,105 @@ index(State& s, HotStdLib name, unsigned shift)
 }
 
 void
-load_i32(State& s, Prec prec, Ctx ctx, HotStdLib name, unsigned shift)
+load_i32(State& s, Prec prec, Ctx ctx, HotStdLib name, unsigned shift, bool offset)
 {
   if (ctx != Ctx::ToI32) {
     if (need_paren(prec, Prec::BitOr)) {
       s.write.ascii('(');
-      index(s, name, shift);
+      index(s, name, shift, offset);
       s.write.ascii("|0)");
     } else {
-      index(s, name, shift);
+      index(s, name, shift, offset);
       s.write.ascii("|0");
     }
   } else {
-    index(s, name, shift);
+    index(s, name, shift, offset);
   }
 }
 
 void
-load_f32(State& s, Prec prec, Ctx ctx)
+load_f32(State& s, Prec prec, Ctx ctx, bool offset)
 {
   if (ctx != Ctx::FRound && ctx != Ctx::ToNumber) {
     if (need_paren(prec, Prec::Unary)) {
       s.write.ascii('(');
       s.write.name(HotStdLib::FRound);
       s.write.ascii('(');
-      index(s, HotStdLib::HeapF32, 2);
+      index(s, HotStdLib::HeapF32, 2, offset);
       s.write.ascii("))");
     } else {
       s.write.name(HotStdLib::FRound);
       s.write.ascii('(');
-      index(s, HotStdLib::HeapF32, 2);
+      index(s, HotStdLib::HeapF32, 2, offset);
       s.write.ascii(')');
     }
   } else {
-    index(s, HotStdLib::HeapF32, 2);
+    index(s, HotStdLib::HeapF32, 2, offset);
   }
 }
 
 void
-load_f64(State& s, Prec prec, Ctx ctx)
+load_f64(State& s, Prec prec, Ctx ctx, bool offset)
 {
   if (ctx != Ctx::ToNumber) {
     if (need_paren(prec, Prec::Unary)) {
       s.write.ascii("(+");
-      index(s, HotStdLib::HeapF64, 3);
+      index(s, HotStdLib::HeapF64, 3, offset);
       s.write.ascii(')');
     } else {
       s.write.ascii('+');
-      index(s, HotStdLib::HeapF64, 3);
+      index(s, HotStdLib::HeapF64, 3, offset);
     }
   } else {
-    index(s, HotStdLib::HeapF64, 3);
+    index(s, HotStdLib::HeapF64, 3, offset);
   }
 }
 
 template <RType T>
 void
-store(State& s, Prec prec, HotStdLib name, unsigned shift, Ctx child_ctx)
+store(State& s, Prec prec, HotStdLib name, unsigned shift, Ctx child_ctx, bool offset)
 {
   if (need_paren(prec, Prec::Assign)) {
     s.write.ascii('(');
-    index(s, name, shift);
+    index(s, name, shift, offset);
     s.write.ascii('=');
     expr<T>(s, accept_same(Prec::Assign), child_ctx);
     s.write.ascii(')');
   } else {
-    index(s, name, shift);
+    index(s, name, shift, offset);
     s.write.ascii('=');
     expr<T>(s, accept_same(Prec::Assign), child_ctx);
   }
 }
 
 void
-store_i8(State& s, Prec prec)
+store_i8(State& s, Prec prec, bool offset)
 {
-  store<RType::I32>(s, prec, HotStdLib::HeapS8, 0, Ctx::ToI32);
+  store<RType::I32>(s, prec, HotStdLib::HeapS8, 0, Ctx::ToI32, offset);
 }
 
 void
-store_i16(State& s, Prec prec)
+store_i16(State& s, Prec prec, bool offset)
 {
-  store<RType::I32>(s, prec, HotStdLib::HeapS16, 1, Ctx::ToI32);
+  store<RType::I32>(s, prec, HotStdLib::HeapS16, 1, Ctx::ToI32, offset);
 }
 
 void
-store_i32(State& s, Prec prec)
+store_i32(State& s, Prec prec, bool offset)
 {
-  store<RType::I32>(s, prec, HotStdLib::HeapS32, 2, Ctx::ToI32);
+  store<RType::I32>(s, prec, HotStdLib::HeapS32, 2, Ctx::ToI32, offset);
 }
 
 void
-store_f32(State& s, Prec prec)
+store_f32(State& s, Prec prec, bool offset)
 {
-  store<RType::F32>(s, prec, HotStdLib::HeapF32, 2, Ctx::FRound);
+  store<RType::F32>(s, prec, HotStdLib::HeapF32, 2, Ctx::FRound, offset);
 }
 
 void
-store_f64(State& s, Prec prec)
+store_f64(State& s, Prec prec, bool offset)
 {
-  store<RType::F64>(s, prec, HotStdLib::HeapF64, 3, Ctx::ToNumber);
+  store<RType::F64>(s, prec, HotStdLib::HeapF64, 3, Ctx::ToNumber, offset);
 }
 
 void
@@ -1644,71 +1652,79 @@ expr_i32(State& s, Prec prec, Ctx ctx)
   uint8_t imm;
   if (s.read.code(&i32, &i32_with_imm, &imm)) {
     switch (i32) {
-      case I32::LitImm:   s.write.int32(s.read.imm_u32()); break;
-      case I32::LitPool:  s.write.int32(s.i32s()[s.read.imm_u32()]); break;
-      case I32::GetLoc:   get_local(s); break;
-      case I32::GetGlo:   get_global(s); break;
-      case I32::SetLoc:   set_local<Type::I32>(s, prec); break;
-      case I32::SetGlo:   set_global<Type::I32>(s, prec); break;
-      case I32::SLoad8:   load_i32(s, prec, ctx, HotStdLib::HeapS8, 0); break;
-      case I32::ULoad8:   load_i32(s, prec, ctx, HotStdLib::HeapU8, 0); break;
-      case I32::SLoad16:  load_i32(s, prec, ctx, HotStdLib::HeapS16, 1); break;
-      case I32::ULoad16:  load_i32(s, prec, ctx, HotStdLib::HeapU16, 1); break;
-      case I32::Load32:   load_i32(s, prec, ctx, HotStdLib::HeapS32, 2); break;
-      case I32::Store8:   store_i8(s, prec); break;
-      case I32::Store16:  store_i16(s, prec); break;
-      case I32::Store32:  store_i32(s, prec); break;
-      case I32::CallInt:  call_internal_i32(s, prec); break;
-      case I32::CallInd:  call_indirect_i32(s, prec); break;
-      case I32::CallImp:  call_import_i32(s, prec); break;
-      case I32::Cond:     cond<RType::I32>(s, prec); break;
-      case I32::Comma:    comma<RType::I32>(s, prec); break;
-      case I32::FromF32:  prefix<RType::F32>(s, prec, ctx, Result::NoIsh, Ctx::Default, "~~"); break;
-      case I32::FromF64:  prefix<RType::F64>(s, prec, ctx, Result::NoIsh, Ctx::Default, "~~"); break;
-      case I32::Neg:      prefix<RType::I32>(s, prec, ctx, Result::Intish, Ctx::Default, "-"); break;
-      case I32::Add:      add_sub<RType::I32>(s, prec, ctx, '+'); break;
-      case I32::Sub:      add_sub<RType::I32>(s, prec, ctx, '-'); break;
-      case I32::Mul:      mul_i32(s, prec); break;
-      case I32::SDiv:     div_mod_i32(s, prec, ctx, Signed, '/'); break;
-      case I32::UDiv:     div_mod_i32(s, prec, ctx, Unsigned, '/'); break;
-      case I32::SMod:     div_mod_i32(s, prec, ctx, Signed, '%'); break;
-      case I32::UMod:     div_mod_i32(s, prec, ctx, Unsigned, '%'); break;
-      case I32::BitNot:   prefix<RType::I32>(s, prec, ctx, Result::NoIsh, Ctx::ToI32, "~"); break;
-      case I32::BitOr:    bitwise(s, prec, Prec::BitOr, Ctx::ToI32, "|"); break;
-      case I32::BitAnd:   bitwise(s, prec, Prec::BitAnd, Ctx::ToI32, "&"); break;
-      case I32::BitXor:   bitwise(s, prec, Prec::BitXor, Ctx::ToI32, "^"); break;
-      case I32::Lsh:      bitwise(s, prec, Prec::Shifts, Ctx::ToI32, "<<"); break;
-      case I32::ArithRsh: bitwise(s, prec, Prec::Shifts, Ctx::ToI32, ">>"); break;
-      case I32::LogicRsh: bitwise(s, prec, Prec::Shifts, Ctx::ToI32, ">>>"); break;
-      case I32::Clz:      clz_i32(s, prec, StdLib::clz32); break;
-      case I32::LogicNot: prefix<RType::I32>(s, prec, ctx, Result::NoIsh, Ctx::Default, "!"); break;
-      case I32::EqI32:    rel_i32(s, prec, Prec::Eq, Signed, "=="); break;
-      case I32::EqF32:    rel_f<RType::F32>(s, prec, Prec::Eq, "=="); break;
-      case I32::EqF64:    rel_f<RType::F64>(s, prec, Prec::Eq, "=="); break;
-      case I32::NEqI32:   rel_i32(s, prec, Prec::Eq, Signed, "!="); break;
-      case I32::NEqF32:   rel_f<RType::F32>(s, prec, Prec::Eq, "!="); break;
-      case I32::NEqF64:   rel_f<RType::F64>(s, prec, Prec::Eq, "!="); break;
-      case I32::SLeThI32: rel_i32(s, prec, Prec::Comp, Signed, "<"); break;
-      case I32::ULeThI32: rel_i32(s, prec, Prec::Comp, Unsigned, "<"); break;
-      case I32::LeThF32:  rel_f<RType::F32>(s, prec, Prec::Comp, "<"); break;
-      case I32::LeThF64:  rel_f<RType::F64>(s, prec, Prec::Comp, "<"); break;
-      case I32::SLeEqI32: rel_i32(s, prec, Prec::Comp, Signed, "<="); break;
-      case I32::ULeEqI32: rel_i32(s, prec, Prec::Comp, Unsigned, "<="); break;
-      case I32::LeEqF32:  rel_f<RType::F32>(s, prec, Prec::Comp, "<="); break;
-      case I32::LeEqF64:  rel_f<RType::F64>(s, prec, Prec::Comp, "<="); break;
-      case I32::SGrThI32: rel_i32(s, prec, Prec::Comp, Signed, ">"); break;
-      case I32::UGrThI32: rel_i32(s, prec, Prec::Comp, Unsigned, ">"); break;
-      case I32::GrThF32:  rel_f<RType::F32>(s, prec, Prec::Comp, ">"); break;
-      case I32::GrThF64:  rel_f<RType::F64>(s, prec, Prec::Comp, ">"); break;
-      case I32::SGrEqI32: rel_i32(s, prec, Prec::Comp, Signed, ">="); break;
-      case I32::UGrEqI32: rel_i32(s, prec, Prec::Comp, Unsigned, ">="); break;
-      case I32::GrEqF32:  rel_f<RType::F32>(s, prec, Prec::Comp, ">="); break;
-      case I32::GrEqF64:  rel_f<RType::F64>(s, prec, Prec::Comp, ">="); break;
-      case I32::SMin:     min_max_i32(s, prec, Signed, StdLib::min); break;
-      case I32::UMin:     min_max_i32(s, prec, Unsigned, StdLib::min); break;
-      case I32::SMax:     min_max_i32(s, prec, Signed, StdLib::max); break;
-      case I32::UMax:     min_max_i32(s, prec, Unsigned, StdLib::max); break;
-      case I32::Abs:      abs_i32(s, prec, StdLib::abs); break;
+      case I32::LitImm:     s.write.int32(s.read.imm_u32()); break;
+      case I32::LitPool:    s.write.int32(s.i32s()[s.read.imm_u32()]); break;
+      case I32::GetLoc:     get_local(s); break;
+      case I32::GetGlo:     get_global(s); break;
+      case I32::SetLoc:     set_local<Type::I32>(s, prec); break;
+      case I32::SetGlo:     set_global<Type::I32>(s, prec); break;
+      case I32::SLoad8:     load_i32(s, prec, ctx, HotStdLib::HeapS8, 0, false); break;
+      case I32::SLoadOff8:  load_i32(s, prec, ctx, HotStdLib::HeapS8, 0, true); break;
+      case I32::ULoad8:     load_i32(s, prec, ctx, HotStdLib::HeapU8, 0, false); break;
+      case I32::ULoadOff8:  load_i32(s, prec, ctx, HotStdLib::HeapU8, 0, true); break;
+      case I32::SLoad16:    load_i32(s, prec, ctx, HotStdLib::HeapS16, 1, false); break;
+      case I32::SLoadOff16: load_i32(s, prec, ctx, HotStdLib::HeapS16, 1, true); break;
+      case I32::ULoad16:    load_i32(s, prec, ctx, HotStdLib::HeapU16, 1, false); break;
+      case I32::ULoadOff16: load_i32(s, prec, ctx, HotStdLib::HeapU16, 1, true); break;
+      case I32::Load32:     load_i32(s, prec, ctx, HotStdLib::HeapS32, 2, false); break;
+      case I32::LoadOff32:  load_i32(s, prec, ctx, HotStdLib::HeapS32, 2, true); break;
+      case I32::Store8:     store_i8(s, prec, false); break;
+      case I32::StoreOff8:  store_i8(s, prec, true); break;
+      case I32::Store16:    store_i16(s, prec, false); break;
+      case I32::StoreOff16: store_i16(s, prec, true); break;
+      case I32::Store32:    store_i32(s, prec, false); break;
+      case I32::StoreOff32: store_i32(s, prec, true); break;
+      case I32::CallInt:    call_internal_i32(s, prec); break;
+      case I32::CallInd:    call_indirect_i32(s, prec); break;
+      case I32::CallImp:    call_import_i32(s, prec); break;
+      case I32::Cond:       cond<RType::I32>(s, prec); break;
+      case I32::Comma:      comma<RType::I32>(s, prec); break;
+      case I32::FromF32:    prefix<RType::F32>(s, prec, ctx, Result::NoIsh, Ctx::Default, "~~"); break;
+      case I32::FromF64:    prefix<RType::F64>(s, prec, ctx, Result::NoIsh, Ctx::Default, "~~"); break;
+      case I32::Neg:        prefix<RType::I32>(s, prec, ctx, Result::Intish, Ctx::Default, "-"); break;
+      case I32::Add:        add_sub<RType::I32>(s, prec, ctx, '+'); break;
+      case I32::Sub:        add_sub<RType::I32>(s, prec, ctx, '-'); break;
+      case I32::Mul:        mul_i32(s, prec); break;
+      case I32::SDiv:       div_mod_i32(s, prec, ctx, Signed, '/'); break;
+      case I32::UDiv:       div_mod_i32(s, prec, ctx, Unsigned, '/'); break;
+      case I32::SMod:       div_mod_i32(s, prec, ctx, Signed, '%'); break;
+      case I32::UMod:       div_mod_i32(s, prec, ctx, Unsigned, '%'); break;
+      case I32::BitNot:     prefix<RType::I32>(s, prec, ctx, Result::NoIsh, Ctx::ToI32, "~"); break;
+      case I32::BitOr:      bitwise(s, prec, Prec::BitOr, Ctx::ToI32, "|"); break;
+      case I32::BitAnd:     bitwise(s, prec, Prec::BitAnd, Ctx::ToI32, "&"); break;
+      case I32::BitXor:     bitwise(s, prec, Prec::BitXor, Ctx::ToI32, "^"); break;
+      case I32::Lsh:        bitwise(s, prec, Prec::Shifts, Ctx::ToI32, "<<"); break;
+      case I32::ArithRsh:   bitwise(s, prec, Prec::Shifts, Ctx::ToI32, ">>"); break;
+      case I32::LogicRsh:   bitwise(s, prec, Prec::Shifts, Ctx::ToI32, ">>>"); break;
+      case I32::Clz:        clz_i32(s, prec, StdLib::clz32); break;
+      case I32::LogicNot:   prefix<RType::I32>(s, prec, ctx, Result::NoIsh, Ctx::Default, "!"); break;
+      case I32::EqI32:      rel_i32(s, prec, Prec::Eq, Signed, "=="); break;
+      case I32::EqF32:      rel_f<RType::F32>(s, prec, Prec::Eq, "=="); break;
+      case I32::EqF64:      rel_f<RType::F64>(s, prec, Prec::Eq, "=="); break;
+      case I32::NEqI32:     rel_i32(s, prec, Prec::Eq, Signed, "!="); break;
+      case I32::NEqF32:     rel_f<RType::F32>(s, prec, Prec::Eq, "!="); break;
+      case I32::NEqF64:     rel_f<RType::F64>(s, prec, Prec::Eq, "!="); break;
+      case I32::SLeThI32:   rel_i32(s, prec, Prec::Comp, Signed, "<"); break;
+      case I32::ULeThI32:   rel_i32(s, prec, Prec::Comp, Unsigned, "<"); break;
+      case I32::LeThF32:    rel_f<RType::F32>(s, prec, Prec::Comp, "<"); break;
+      case I32::LeThF64:    rel_f<RType::F64>(s, prec, Prec::Comp, "<"); break;
+      case I32::SLeEqI32:   rel_i32(s, prec, Prec::Comp, Signed, "<="); break;
+      case I32::ULeEqI32:   rel_i32(s, prec, Prec::Comp, Unsigned, "<="); break;
+      case I32::LeEqF32:    rel_f<RType::F32>(s, prec, Prec::Comp, "<="); break;
+      case I32::LeEqF64:    rel_f<RType::F64>(s, prec, Prec::Comp, "<="); break;
+      case I32::SGrThI32:   rel_i32(s, prec, Prec::Comp, Signed, ">"); break;
+      case I32::UGrThI32:   rel_i32(s, prec, Prec::Comp, Unsigned, ">"); break;
+      case I32::GrThF32:    rel_f<RType::F32>(s, prec, Prec::Comp, ">"); break;
+      case I32::GrThF64:    rel_f<RType::F64>(s, prec, Prec::Comp, ">"); break;
+      case I32::SGrEqI32:   rel_i32(s, prec, Prec::Comp, Signed, ">="); break;
+      case I32::UGrEqI32:   rel_i32(s, prec, Prec::Comp, Unsigned, ">="); break;
+      case I32::GrEqF32:    rel_f<RType::F32>(s, prec, Prec::Comp, ">="); break;
+      case I32::GrEqF64:    rel_f<RType::F64>(s, prec, Prec::Comp, ">="); break;
+      case I32::SMin:       min_max_i32(s, prec, Signed, StdLib::min); break;
+      case I32::UMin:       min_max_i32(s, prec, Unsigned, StdLib::min); break;
+      case I32::SMax:       min_max_i32(s, prec, Signed, StdLib::max); break;
+      case I32::UMax:       min_max_i32(s, prec, Unsigned, StdLib::max); break;
+      case I32::Abs:        abs_i32(s, prec, StdLib::abs); break;
       default: unreachable<void>();
     }
   } else {
@@ -1735,8 +1751,10 @@ expr_f32(State& s, Prec prec, Ctx ctx)
       case F32::GetGlo:   get_global(s); break;
       case F32::SetLoc:   set_local<Type::F32>(s, prec); break;
       case F32::SetGlo:   set_global<Type::F32>(s, prec); break;
-      case F32::Load:     load_f32(s, prec, ctx); break;
-      case F32::Store:    store_f32(s, prec); break;
+      case F32::Load:     load_f32(s, prec, ctx, false); break;
+      case F32::LoadOff:  load_f32(s, prec, ctx, true); break;
+      case F32::Store:    store_f32(s, prec, false); break;
+      case F32::StoreOff: store_f32(s, prec, true); break;
       case F32::CallInt:  call_internal_f32(s, prec); break;
       case F32::CallInd:  call_indirect_f32(s, prec); break;
       case F32::Cond:     cond<RType::F32>(s, prec); break;
@@ -1778,8 +1796,10 @@ expr_f64(State& s, Prec prec, Ctx ctx)
       case F64::GetGlo:   get_global(s); break;
       case F64::SetLoc:   set_local<Type::F64>(s, prec); break;
       case F64::SetGlo:   set_global<Type::F64>(s, prec); break;
-      case F64::Load:     load_f64(s, prec, ctx); break;
-      case F64::Store:    store_f64(s, prec); break;
+      case F64::Load:     load_f64(s, prec, ctx, false); break;
+      case F64::LoadOff:  load_f64(s, prec, ctx, true); break;
+      case F64::Store:    store_f64(s, prec, false); break;
+      case F64::StoreOff: store_f64(s, prec, true); break;
       case F64::CallInt:  call_internal_f64(s, prec); break;
       case F64::CallInd:  call_indirect_f64(s, prec); break;
       case F64::CallImp:  call_import_f64(s, prec); break;
@@ -1996,11 +2016,16 @@ stmt(State& s)
     switch (stmt) {
       case Stmt::SetLoc: set_local(s, Prec::Lowest); s.write.ascii(";\n"); break;
       case Stmt::SetGlo: set_global(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::I32Store8: store_i8(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::I32Store16: store_i16(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::I32Store32: store_i32(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::F32Store: store_f32(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::F64Store: store_f64(s, Prec::Lowest); s.write.ascii(";\n"); break;
+      case Stmt::I32Store8: store_i8(s, Prec::Lowest, false); s.write.ascii(";\n"); break;
+      case Stmt::I32StoreOff8: store_i8(s, Prec::Lowest, true); s.write.ascii(";\n"); break;
+      case Stmt::I32Store16: store_i16(s, Prec::Lowest, false); s.write.ascii(";\n"); break;
+      case Stmt::I32StoreOff16: store_i16(s, Prec::Lowest, true); s.write.ascii(";\n"); break;
+      case Stmt::I32Store32: store_i32(s, Prec::Lowest, false); s.write.ascii(";\n"); break;
+      case Stmt::I32StoreOff32: store_i32(s, Prec::Lowest, true); s.write.ascii(";\n"); break;
+      case Stmt::F32Store: store_f32(s, Prec::Lowest, false); s.write.ascii(";\n"); break;
+      case Stmt::F32StoreOff: store_f32(s, Prec::Lowest, true); s.write.ascii(";\n"); break;
+      case Stmt::F64Store: store_f64(s, Prec::Lowest, false); s.write.ascii(";\n"); break;
+      case Stmt::F64StoreOff: store_f64(s, Prec::Lowest, true); s.write.ascii(";\n"); break;
       case Stmt::CallInt: call_internal(s, Prec::Lowest); s.write.ascii(";\n"); break;
       case Stmt::CallInd: call_indirect(s, Prec::Lowest); s.write.ascii(";\n"); break;
       case Stmt::CallImp: call_import(s, Prec::Lowest); s.write.ascii(";\n"); break;

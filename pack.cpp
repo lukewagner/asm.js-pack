@@ -403,13 +403,17 @@ struct IndexNode : AstNode
   IndexNode(AstNode& array, AstNode& index)
   : AstNode(Which)
   , array(array)
-  , index(index)
+  , index(&index)
+  , constant(false)
+  , offset(0)
   {}
 
   AstNode& array;
-  AstNode& index;
+  AstNode* index;
 
+  bool constant;
   Expr expr;
+  uint32_t offset;
 };
 
 struct ArrayNode : AstNode, List<AstNode>
@@ -1544,8 +1548,8 @@ analyze_call_indirect(Module& m, Function& f, CallNode& call, RType ret_type)
   assert(call.callee.is<IndexNode>());
   IndexNode& index = call.callee.as<IndexNode>();
   assert(index.array.is<NameNode>());
-  assert(index.index.is<BinaryNode>());
-  BinaryNode& mask = index.index.as<BinaryNode>();
+  assert(index.index->is<BinaryNode>());
+  BinaryNode& mask = index.index->as<BinaryNode>();
   assert(mask.op.equals("&"));
   assert(mask.rhs.is<IntNode>());
   analyze_expr(m, f, mask.lhs);
@@ -1691,34 +1695,38 @@ analyze_comma(Module& m, Function& f, BinaryNode& binary)
   return rhs;
 }
 
-bool
-is_heap_shift(AstNode& index, HeapView hv)
-{
-  return index.is<BinaryNode>() &&
-         index.as<BinaryNode>().op.equals(">>") &&
-         index.as<BinaryNode>().rhs.is<IntNode>() &&
-         index.as<BinaryNode>().rhs.as<IntNode>().u32 == hv.shift;
-}
-
-AstNode&
-preshift_index(AstNode& index, HeapView hv)
-{
-  assert(is_heap_shift(index, hv));
-  return index.as<BinaryNode>().lhs;
-}
-
-HeapView analyze_index(Module& m, Function& f, IndexNode& index)
+HeapView
+analyze_index(Module& m, Function& f, IndexNode& index)
 {
   HeapView hv = m.heap_view(index.array.as<NameNode>().str);
 
   AsmJSType t;
-  if (index.index.is<IntNode>()) {
-    t = analyze_num_lit(m, NumLit(m, index.index), hv.shift);
-  } else if (is_heap_shift(index.index, hv)) {
-    t = analyze_expr(m, f, preshift_index(index.index, hv));
+  if (index.index->is<IntNode>()) {
+    index.constant = true;
+    t = analyze_num_lit(m, NumLit(m, *index.index), hv.shift);
   } else {
-    assert(hv.shift == 0);
-    t = analyze_expr(m, f, index.index);
+    if (index.index->is<BinaryNode>()) {
+      BinaryNode& binary = index.index->as<BinaryNode>();
+      if (binary.op.equals(">>") && binary.rhs.is<IntNode>() && binary.rhs.as<IntNode>().u32 == hv.shift)
+        index.index = &binary.lhs;
+      else
+        assert(hv.shift == 0);
+    }
+
+    if (index.index->is<BinaryNode>()) {
+      BinaryNode& binary = index.index->as<BinaryNode>();
+      if (binary.op.equals("+")) {
+        if (binary.rhs.is<IntNode>()) {
+          index.offset = binary.rhs.as<IntNode>().u32;
+          index.index = &binary.lhs;
+        } else if (binary.lhs.is<IntNode>()) {
+          index.offset = binary.lhs.as<IntNode>().u32;
+          index.index = &binary.rhs;
+        }
+      }
+    }
+
+    t = analyze_expr(m, f, *index.index);
   }
 
   assert(t.is_int());
@@ -1732,16 +1740,24 @@ analyze_load(Module& m, Function& f, IndexNode& index)
   switch (hv.type) {
     case Type::I32:
       switch (hv.shift) {
-        case 0: index.expr = signedness_switch(hv.si, I32::SLoad8, I32::ULoad8); break;
-        case 1: index.expr = signedness_switch(hv.si, I32::SLoad16, I32::ULoad16); break;
-        case 2: index.expr = I32::Load32; break;
+        case 0:
+          index.expr = index.offset ? signedness_switch(hv.si, I32::SLoadOff8, I32::ULoadOff8)
+                                    : signedness_switch(hv.si, I32::SLoad8, I32::ULoad8);
+          break;
+        case 1:
+          index.expr = index.offset ? signedness_switch(hv.si, I32::SLoadOff16, I32::ULoadOff16)
+                                    : signedness_switch(hv.si, I32::SLoad16, I32::ULoad16);
+          break;
+        case 2:
+          index.expr = index.offset ? I32::LoadOff32 : I32::Load32;
+          break;
       }
       break;
     case Type::F32:
-      index.expr = F32::Load;
+      index.expr = index.offset ? F32::LoadOff : F32::Load;
       break;
     case Type::F64:
-      index.expr = F64::Load;
+      index.expr = index.offset ? F64::LoadOff : F64::Load;
       break;
   }
   return type_switch(hv.type, AsmJSType::Int, AsmJSType::Float, AsmJSType::Double);
@@ -1750,21 +1766,31 @@ analyze_load(Module& m, Function& f, IndexNode& index)
 AsmJSType
 analyze_store(Module& m, Function& f, BinaryNode& binary)
 {
-  HeapView hv = analyze_index(m, f, binary.lhs.as<IndexNode>());
+  IndexNode& index = binary.lhs.as<IndexNode>();
+  HeapView hv = analyze_index(m, f, index);
   AsmJSType rhs = analyze_expr(m, f, binary.rhs);
   switch (hv.type) {
     case Type::I32:
       assert(rhs.is_int());
       switch (hv.shift) {
-        case 0: binary.expr = I32::Store8; binary.stmt = Stmt::I32Store8; break;
-        case 1: binary.expr = I32::Store16; binary.stmt = Stmt::I32Store16; break;
-        case 2: binary.expr = I32::Store32; binary.stmt = Stmt::I32Store32; break;
+        case 0:
+          binary.expr = index.offset ? I32::StoreOff8 : I32::Store8;
+          binary.stmt = index.offset ? Stmt::I32StoreOff8 : Stmt::I32Store8;
+          break;
+        case 1:
+          binary.expr = index.offset ? I32::StoreOff16 : I32::Store16;
+          binary.stmt = index.offset ? Stmt::I32StoreOff16 : Stmt::I32Store16;
+          break;
+        case 2:
+          binary.expr = index.offset ? I32::StoreOff32 : I32::Store32;
+          binary.stmt = index.offset ? Stmt::I32StoreOff32 : Stmt::I32Store32;
+          break;
       }
       break;
     case Type::F32:
       assert(rhs.is_float() || rhs.is_double());
-      binary.expr = F32::Store;
-      binary.stmt = Stmt::F32Store;
+      binary.expr = index.offset ? F32::StoreOff : F32::Store;
+      binary.stmt = index.offset ? Stmt::F32StoreOff : Stmt::F32Store;
       if (rhs.is_double()) {
         binary.store_rhs_conv = F32::FromF64;
         f.set_needs_f64_temp();
@@ -1772,8 +1798,8 @@ analyze_store(Module& m, Function& f, BinaryNode& binary)
       break;
     case Type::F64:
       assert(rhs.is_float() || rhs.is_double());
-      binary.expr = F64::Store;
-      binary.stmt = Stmt::F64Store;
+      binary.expr = index.offset ? F64::StoreOff : F64::Store;
+      binary.stmt = index.offset ? Stmt::F64StoreOff : Stmt::F64Store;
       if (rhs.is_float()) {
         binary.store_rhs_conv = F64::FromF32;
         f.set_needs_f32_temp();
@@ -2295,15 +2321,13 @@ write_bitwise(Module& m, Function& f, const BinaryNode& binary, Ctx ctx)
 void
 write_index(Module& m, Function& f, const IndexNode& index)
 {
-  HeapView hv = m.heap_view(index.array.as<NameNode>().str);
-  if (index.index.is<IntNode>()) {
-    write_num_lit(m, f, NumLit(m, index.index), hv.shift);
-  } else if (is_heap_shift(index.index, hv)) {
-    write_expr(m, f, preshift_index(index.index, hv));
-  } else {
-    assert(hv.shift == 0);
-    write_expr(m, f, index.index);
-  }
+  if (index.offset > 0)
+    m.write().imm_u32(index.offset);
+
+  if (index.constant)
+    write_num_lit(m, f, NumLit(m, *index.index), m.heap_view(index.array.as<NameNode>().str).shift);
+  else
+    write_expr(m, f, *index.index);
 }
 
 void
@@ -2472,7 +2496,7 @@ write_call(Module& m, Function& f, const CallNode& call, Ctx ctx)
       auto& index = call.callee.as<IndexNode>();
       auto func_ptr_tbl_i = m.func_ptr_table_index(index.array.as<NameNode>().str);
       m.write().imm_u32(func_ptr_tbl_i);
-      write_expr(m, f, index.index.as<BinaryNode>().lhs);
+      write_expr(m, f, index.index->as<BinaryNode>().lhs);
       assert(call.compute_length() == m.sig(m.func_ptr_table(func_ptr_tbl_i).sig_index).args.size());
       break;
     }
@@ -2803,7 +2827,7 @@ struct AstBuilder
       case AstNode::Dot:
         return stmtify(&expr->as<DotNode>().base);
       case AstNode::Index:
-        return stmtify(&expr->as<IndexNode>().index);
+        return stmtify(expr->as<IndexNode>().index);
       case AstNode::Prefix:
         if (!is_double_coerced_call(expr->as<PrefixNode>()))
           return stmtify(&expr->as<PrefixNode>().kid);
