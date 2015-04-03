@@ -1734,7 +1734,7 @@ analyze_load(Module& m, Function& f, IndexNode& index)
       switch (hv.shift) {
         case 0: index.expr = signedness_switch(hv.si, I32::SLoad8, I32::ULoad8); break;
         case 1: index.expr = signedness_switch(hv.si, I32::SLoad16, I32::ULoad16); break;
-        case 2: index.expr = signedness_switch(hv.si, I32::SLoad32, I32::ULoad32); break;
+        case 2: index.expr = I32::Load32; break;
       }
       break;
     case Type::F32:

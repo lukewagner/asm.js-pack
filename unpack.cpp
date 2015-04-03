@@ -1654,8 +1654,7 @@ expr_i32(State& s, Prec prec, Ctx ctx)
       case I32::ULoad8:   load_i32(s, prec, ctx, HotStdLib::HeapU8, 0); break;
       case I32::SLoad16:  load_i32(s, prec, ctx, HotStdLib::HeapS16, 1); break;
       case I32::ULoad16:  load_i32(s, prec, ctx, HotStdLib::HeapU16, 1); break;
-      case I32::SLoad32:  load_i32(s, prec, ctx, HotStdLib::HeapS32, 2); break;
-      case I32::ULoad32:  load_i32(s, prec, ctx, HotStdLib::HeapU32, 2); break;
+      case I32::Load32:   load_i32(s, prec, ctx, HotStdLib::HeapS32, 2); break;
       case I32::Store8:   store_i8(s, prec); break;
       case I32::Store16:  store_i16(s, prec); break;
       case I32::Store32:  store_i32(s, prec); break;
