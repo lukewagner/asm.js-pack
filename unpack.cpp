@@ -948,18 +948,6 @@ store_f32(State& s, Prec prec)
 }
 
 void
-store_f32_f64(State& s, Prec prec)
-{
-  store<RType::F32>(s, prec, HotStdLib::HeapF64, 3, Ctx::ToNumber);
-}
-
-void
-store_f64_f32(State& s, Prec prec)
-{
-  store<RType::F64>(s, prec, HotStdLib::HeapF32, 2, Ctx::FRound);
-}
-
-void
 store_f64(State& s, Prec prec)
 {
   store<RType::F64>(s, prec, HotStdLib::HeapF64, 3, Ctx::ToNumber);
@@ -1749,8 +1737,7 @@ expr_f32(State& s, Prec prec, Ctx ctx)
       case F32::SetLoc:   set_local<Type::F32>(s, prec); break;
       case F32::SetGlo:   set_global<Type::F32>(s, prec); break;
       case F32::Load:     load_f32(s, prec, ctx); break;
-      case F32::StoreF32: store_f32(s, prec); break;
-      case F32::StoreF64: store_f32_f64(s, prec); break;
+      case F32::Store:    store_f32(s, prec); break;
       case F32::CallInt:  call_internal_f32(s, prec); break;
       case F32::CallInd:  call_indirect_f32(s, prec); break;
       case F32::Cond:     cond<RType::F32>(s, prec); break;
@@ -1793,8 +1780,7 @@ expr_f64(State& s, Prec prec, Ctx ctx)
       case F64::SetLoc:   set_local<Type::F64>(s, prec); break;
       case F64::SetGlo:   set_global<Type::F64>(s, prec); break;
       case F64::Load:     load_f64(s, prec, ctx); break;
-      case F64::StoreF32: store_f64_f32(s, prec); break;
-      case F64::StoreF64: store_f64(s, prec); break;
+      case F64::Store:    store_f64(s, prec); break;
       case F64::CallInt:  call_internal_f64(s, prec); break;
       case F64::CallInd:  call_indirect_f64(s, prec); break;
       case F64::CallImp:  call_import_f64(s, prec); break;
@@ -2014,10 +2000,8 @@ stmt(State& s)
       case Stmt::I32Store8: store_i8(s, Prec::Lowest); s.write.ascii(";\n"); break;
       case Stmt::I32Store16: store_i16(s, Prec::Lowest); s.write.ascii(";\n"); break;
       case Stmt::I32Store32: store_i32(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::F32StoreF32: store_f32(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::F32StoreF64: store_f32_f64(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::F64StoreF32: store_f64_f32(s, Prec::Lowest); s.write.ascii(";\n"); break;
-      case Stmt::F64StoreF64: store_f64(s, Prec::Lowest); s.write.ascii(";\n"); break;
+      case Stmt::F32Store: store_f32(s, Prec::Lowest); s.write.ascii(";\n"); break;
+      case Stmt::F64Store: store_f64(s, Prec::Lowest); s.write.ascii(";\n"); break;
       case Stmt::CallInt: call_internal(s, Prec::Lowest); s.write.ascii(";\n"); break;
       case Stmt::CallInd: call_indirect(s, Prec::Lowest); s.write.ascii(";\n"); break;
       case Stmt::CallImp: call_import(s, Prec::Lowest); s.write.ascii(";\n"); break;

@@ -319,6 +319,7 @@ struct BinaryNode : AstNode
   Stmt stmt;
   StmtWithImm stmt_with_imm;
   RType comma_lhs_type;
+  Expr store_rhs_conv;
 };
 
 struct TernaryNode : AstNode
@@ -513,6 +514,8 @@ class Function
   uint32_t num_i32s_;
   uint32_t num_f32s_;
   uint32_t num_f64s_;
+  uint32_t f32_temp_;
+  uint32_t f64_temp_;
   const AstNode* body_;
   unordered_map<IString, uint32_t> label_to_depth_;
 
@@ -530,6 +533,8 @@ public:
   , num_i32s_(0)
   , num_f32s_(0)
   , num_f64s_(0)
+  , f32_temp_(UINT32_MAX)
+  , f64_temp_(UINT32_MAX)
   , body_(nullptr)
   {}
 
@@ -558,6 +563,24 @@ public:
       add_var(name, Type::F32);
     for (IString name : f64s)
       add_var(name, Type::F64);
+  }
+
+  void set_needs_f32_temp()
+  {
+    if (f32_temp_ != UINT32_MAX)
+      return;
+    f32_temp_ = sig_.args.size() + num_i32s_ + num_f32s_;
+    num_f32s_++;
+    locals_.insert(locals_.begin() + f32_temp_, Type::F32);
+  }
+
+  void set_needs_f64_temp()
+  {
+    if (f64_temp_ != UINT32_MAX)
+      return;
+    f64_temp_ = sig_.args.size() + num_i32s_ + num_f32s_ + num_f64s_;
+    num_f64s_++;
+    locals_.insert(locals_.begin() + f64_temp_, Type::F64);
   }
 
   void set_ret_type(RType ret)
@@ -597,6 +620,8 @@ public:
   uint32_t local_index(IString name) const { return local_name_to_index_.find(name)->second; }
   Type local_type(size_t i) const { return locals_[i]; }
   const AstNode* body() const { return body_; }
+  uint32_t f32_temp() const { assert(f32_temp_ != UINT32_MAX); return f32_temp_; }
+  uint32_t f64_temp() const { assert(f64_temp_ != UINT32_MAX); return f64_temp_; }
 };
 
 enum class PreTypeCode { Neg, Add, Sub, Mul, Eq, NEq, Abs, Ceil, Floor, Sqrt, Comma };
@@ -1738,22 +1763,20 @@ analyze_store(Module& m, Function& f, BinaryNode& binary)
       break;
     case Type::F32:
       assert(rhs.is_float() || rhs.is_double());
-      if (rhs.is_float()) {
-        binary.expr = F32::StoreF32;
-        binary.stmt = Stmt::F32StoreF32;
-      } else {
-        binary.expr = F64::StoreF32;
-        binary.stmt = Stmt::F64StoreF32;
+      binary.expr = F32::Store;
+      binary.stmt = Stmt::F32Store;
+      if (rhs.is_double()) {
+        binary.store_rhs_conv = F32::FromF64;
+        f.set_needs_f64_temp();
       }
       break;
     case Type::F64:
       assert(rhs.is_float() || rhs.is_double());
+      binary.expr = F64::Store;
+      binary.stmt = Stmt::F64Store;
       if (rhs.is_float()) {
-        binary.expr = F32::StoreF64;
-        binary.stmt = Stmt::F32StoreF64;
-      } else {
-        binary.expr = F64::StoreF64;
-        binary.stmt = Stmt::F64StoreF64;
+        binary.store_rhs_conv = F64::FromF32;
+        f.set_needs_f32_temp();
       }
       break;
   }
@@ -2304,12 +2327,49 @@ write_assign(Module& m, Function& f, const BinaryNode& binary, Ctx ctx)
 void
 write_store(Module& m, Function& f, const BinaryNode& binary, Ctx ctx)
 {
-  if (ctx == Ctx::Expr)
-    m.write().code(binary.expr);
-  else
-    m.write().code(binary.stmt);
+  // The simple case
+  if (ctx == Ctx::Stmt || binary.store_rhs_conv.is_bad()) {
+    if (ctx == Ctx::Stmt)
+      m.write().code(binary.stmt);
+    else
+      m.write().code(binary.expr);
+    write_index(m, f, binary.lhs.as<IndexNode>());
+    if (!binary.store_rhs_conv.is_bad())
+      m.write().code(binary.store_rhs_conv);
+    write_expr(m, f, binary.rhs);
+    return;
+  }
+
+  // The complex case: the stored value must be converted, but the result of the SetLoc expression
+  // must be pre-conversion. Store the pre-conversion value in a temporary local (that we allocated
+  // during the analyze phase), convert and store in the lhs of a Comma, and return the
+  // pre-conversion value as the rhs of the Comma.
+
+  Type val_type;
+  uint32_t temp_local_index;
+  if (binary.store_rhs_conv == F64::FromF32) {
+    val_type = Type::F32;
+    temp_local_index = f.f32_temp();
+  } else {
+    assert(binary.store_rhs_conv == F32::FromF64);
+    val_type = Type::F64;
+    temp_local_index = f.f64_temp();
+  }
+
+  m.write().code(type_switch(val_type, I32::Bad, F32::Comma, F64::Comma));
+  m.write().code(binary.store_rhs_conv.type());
+
+  // comma lhs
+  m.write().code(binary.expr);
   write_index(m, f, binary.lhs.as<IndexNode>());
+  m.write().code(binary.store_rhs_conv);
+  m.write().code(type_switch(val_type, I32::Bad, F32::SetLoc, F64::SetLoc));
+  m.write().imm_u32(temp_local_index);
   write_expr(m, f, binary.rhs);
+
+  // comma rhs
+  m.write().code(type_switch(val_type, I32::Bad, F32::GetLoc, F64::GetLoc));
+  m.write().imm_u32(temp_local_index);
 }
 
 void
