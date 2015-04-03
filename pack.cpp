@@ -510,13 +510,26 @@ class Function
   bool set_ret_type_;
   unordered_map<IString, uint32_t> local_name_to_index_;
   vector<Type> locals_;
+  uint32_t num_i32s_;
+  uint32_t num_f32s_;
+  uint32_t num_f64s_;
   const AstNode* body_;
   unordered_map<IString, uint32_t> label_to_depth_;
+
+  void add_var(IString name, Type type)
+  {
+    assert(local_name_to_index_.find(name) == local_name_to_index_.end());
+    local_name_to_index_.emplace(name, locals_.size());
+    locals_.push_back(type);
+  }
 
 public:
   explicit Function()
   : sig_(RType::Void)
   , set_ret_type_(false)
+  , num_i32s_(0)
+  , num_f32s_(0)
+  , num_f64s_(0)
   , body_(nullptr)
   {}
 
@@ -529,17 +542,22 @@ public:
     sig_.args.push_back(type);
   }
 
-  void add_var(IString name, Type type)
-  {
-    assert(local_name_to_index_.find(name) == local_name_to_index_.end());
-    local_name_to_index_.emplace(name, locals_.size());
-    locals_.push_back(type);
-  }
-
-  void set_body(const AstNode* body)
+  void start_body(const AstNode* body,
+                  const vector<IString>& i32s,
+                  const vector<IString>& f32s,
+                  const vector<IString>& f64s)
   {
     assert(!body_);
     body_ = body;
+    num_i32s_ = i32s.size();
+    num_f32s_ = f32s.size();
+    num_f64s_ = f64s.size();
+    for (IString name : i32s)
+      add_var(name, Type::I32);
+    for (IString name : f32s)
+      add_var(name, Type::F32);
+    for (IString name : f64s)
+      add_var(name, Type::F64);
   }
 
   void set_ret_type(RType ret)
@@ -571,6 +589,9 @@ public:
   uint32_t sig_index() const { return sig_index_; }
 
   uint32_t num_vars() const { return locals_.size() - sig_.args.size(); }
+  uint32_t num_i32_vars() const { return num_i32s_; }
+  uint32_t num_f32_vars() const { return num_f32s_; }
+  uint32_t num_f64_vars() const { return num_f64s_; }
   uint32_t num_locals() const { return locals_.size(); }
   bool is_local_name(IString name) { return local_name_to_index_.find(name) != local_name_to_index_.end(); }
   uint32_t local_index(IString name) const { return local_name_to_index_.find(name)->second; }
@@ -1994,11 +2015,18 @@ analyze_function_definition(Module& m, const FuncNode& func)
   for (const ArgNode* arg = func.List<ArgNode>::first; arg; arg = arg->next, body = body->next)
     f.add_arg(arg->name, extract_arg_type(m, *arg, *body));
 
-  for (; body && body->is<VarNode>(); body = body->next)
-    for (VarNameNode* var = body->as<VarNode>().first; var; var = var->next)
-      f.add_var(var->name, extract_var_init(m, var->init));
+  vector<IString> i32s, f32s, f64s;
+  for (; body && body->is<VarNode>(); body = body->next) {
+    for (VarNameNode* var = body->as<VarNode>().first; var; var = var->next) {
+      switch (extract_var_init(m, var->init)) {
+        case Type::I32: i32s.push_back(var->name); break;
+        case Type::F32: f32s.push_back(var->name); break;
+        case Type::F64: f64s.push_back(var->name); break;
+      }
+    }
+  }
 
-  f.set_body(body);
+  f.start_body(body, i32s, f32s, f64s);
 
   for (; body; body = body->next)
     analyze_stmt(m, f, *body);
@@ -2605,14 +2633,31 @@ write_stmt(Module& m, Function& f, const AstNode& stmt)
 }
 
 void
+write_function_definition(Module& m, Function& f)
+{
+  if (f.num_i32_vars() < ImmLimit && f.num_f32_vars() == 0 && f.num_f64_vars() == 0) {
+    m.write().code(VarTypesWithImm::OnlyI32, f.num_i32_vars());
+  } else {
+    VarTypes vt = (f.num_i32_vars() > 0 ? VarTypes::I32 : VarTypes(0)) |
+                  (f.num_f32_vars() > 0 ? VarTypes::F32 : VarTypes(0)) |
+                  (f.num_f64_vars() > 0 ? VarTypes::F64 : VarTypes(0));
+    m.write().code(vt);
+    if (vt & VarTypes::I32)
+      m.write().imm_u32(f.num_i32_vars());
+    if (vt & VarTypes::F32)
+      m.write().imm_u32(f.num_f32_vars());
+    if (vt & VarTypes::F64)
+      m.write().imm_u32(f.num_f64_vars());
+  }
+
+  write_stmt_list(m, f, f.body());
+}
+
+void
 write_function_definition_section(Module& m)
 {
-  for (auto& f : m.funcs()) {
-    m.write().imm_u32(f.num_vars());
-    for (uint32_t local_index = f.sig().args.size(); local_index < f.num_locals(); local_index++)
-      m.write().code(f.local_type(local_index));
-    write_stmt_list(m, f, f.body());
-  }
+  for (auto& f : m.funcs())
+    write_function_definition(m, f);
 }
 
 void

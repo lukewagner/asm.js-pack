@@ -257,6 +257,24 @@ enum class Type : uint8_t
   F64
 };
 
+enum class VarTypes : uint8_t
+{
+  I32 = 0x1,
+  F32 = 0x2,
+  F64 = 0x4,
+};
+
+inline VarTypes operator|(VarTypes lhs, VarTypes rhs) { return VarTypes(uint8_t(lhs) | uint8_t(rhs)); }
+inline bool operator&(VarTypes lhs, VarTypes rhs) { return bool(uint8_t(lhs) & uint8_t(rhs)); }
+
+enum class VarTypesWithImm : uint8_t
+{
+  OnlyI32,
+  Reserved0,
+  Reserved1,
+  Reserved2
+};
+
 enum class RType : uint8_t
 {
   I32 = uint8_t(Type::I32),
@@ -489,11 +507,13 @@ public:
   void code(F64 f) { assert(f < F64::Bad); u8(f); }
   void code(Void v) { assert(v < Void::Bad); u8(v); }
   void code(Expr e) { u8(e.raw_code()); }
-  inline void code(ExprWithImm, uint8_t);
-  inline void code(StmtWithImm, uint8_t);
   void code(ExportFormat f) { u8(f); }
   void code(Type t) { u8(t); }
   void code(RType t) { u8(t); }
+  void code(VarTypes t) { u8(t); }
+  inline void code(ExprWithImm, uint8_t);
+  inline void code(StmtWithImm, uint8_t);
+  inline void code(VarTypesWithImm, uint8_t);
   inline void imm_u32(uint32_t u32);
   inline void imm_s32(int32_t s32);
   void c_str(const char*);
@@ -581,6 +601,13 @@ Out::code(StmtWithImm s, uint8_t imm)
 {
   assert(imm < ImmLimit);
   u8(PackOpWithImm(uint8_t(s), imm));
+}
+
+void inline
+Out::code(VarTypesWithImm l, uint8_t imm)
+{
+  assert(imm < ImmLimit);
+  u8(PackOpWithImm(uint8_t(l), imm));
 }
 
 template <class T, class TWithImm>

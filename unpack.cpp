@@ -134,16 +134,18 @@ class Utf8Writer
       *cur_++ = '_';
     }
 
-    uint8_t* begin = cur_;
+    uint32_t len = 0;
     do {
       check_write(1);
       *cur_++ = iden_chars[i & 0x3f];
+      len++;
       i = i >> 6;
     } while (i >= FirstCharRange * 64);
     check_write(2);
     *cur_++ = iden_chars[i & 0x3f];
     *cur_++ = iden_chars[i >> 6];
-    reverse(begin, cur_);
+    len += 2;
+    reverse(cur_ - len, cur_);
   }
 
 public:
@@ -202,13 +204,14 @@ public:
       return;
     }
 
-    uint8_t *begin = cur_;
+    uint32_t len = 0;
     do {
       check_write(1);
       *cur_++ = '0' + u32 % 10;
+      len++;
       u32 /= 10;
     } while (u32 > 0);
-    reverse(begin, cur_);
+    reverse(cur_ - len, cur_);
   }
 
   void int32(int32_t i32)
@@ -2042,18 +2045,8 @@ stmt(State& s)
 }
 
 void
-function_definition(State& s, size_t func_index)
+args(State& s, const Signature& sig)
 {
-  s.write.ascii("function ");
-  s.write_func_name(func_index);
-  s.write.ascii('(');
-
-  const Signature& sig = s.func_sig(func_index);
-  s.set_cur_ret(sig.ret);
-
-  vector<Type>& local_types = s.cur_local_types();
-  local_types.clear();
-
   size_t num_args = sig.args.size();
   if (num_args > 0) {
     for (uint32_t arg_index = 0;;) {
@@ -2070,7 +2063,7 @@ function_definition(State& s, size_t func_index)
       Type type = sig.args[arg_index];
       s.write.local_name(arg_index);
       s.write.ascii('=');
-      local_types.push_back(type);
+      s.cur_local_types().push_back(type);
       switch (type) {
         case Type::I32:
           s.write.local_name(arg_index);
@@ -2092,35 +2085,73 @@ function_definition(State& s, size_t func_index)
     }
     s.write.ascii('\n');
   }
+}
 
-  uint32_t num_vars = s.read.imm_u32();
+void
+vars(State& s)
+{
+  uint32_t num_i32_vars = 0;
+  uint32_t num_f32_vars = 0;
+  uint32_t num_f64_vars = 0;
+
+  VarTypes var_types;
+  VarTypesWithImm var_types_with_imm;
+  uint8_t imm;
+  if (s.read.code(&var_types, &var_types_with_imm, &imm)) {
+    if (var_types & VarTypes::I32)
+      num_i32_vars = s.read.imm_u32();
+    if (var_types & VarTypes::F32)
+      num_f32_vars = s.read.imm_u32();
+    if (var_types & VarTypes::F64)
+      num_f64_vars = s.read.imm_u32();
+  } else {
+    num_i32_vars = imm;
+  }
+
+  uint32_t num_vars = num_i32_vars + num_f32_vars + num_f64_vars;
   if (num_vars > 0) {
     s.write.ascii("var ");
-    uint32_t var_index = 0;
-    while (true) {
-      Type type = s.read.type();
-      s.write.local_name(local_types.size());
-      local_types.push_back(type);
-      switch (type) {
-        case Type::I32:
-          s.write.ascii("=0");
-          break;
-        case Type::F32:
-          s.write.ascii('=');
-          s.write.name(HotStdLib::FRound);
-          s.write.ascii("(0)");
-          break;
-        case Type::F64:
-          s.write.ascii("=0.");
-          break;
-        default: abort();
-      }
-      if (++var_index == num_vars)
-        break;
-      s.write.ascii(',');
+    uint32_t local_index = s.cur_local_types().size();
+    uint32_t num_locals = local_index + num_vars;
+    for (uint32_t i = 0; i < num_i32_vars; i++) {
+      s.write.local_name(local_index++);
+      s.cur_local_types().push_back(Type::I32);
+      s.write.ascii("=0");
+      if (local_index != num_locals)
+        s.write.ascii(',');
+    }
+    for (uint32_t i = 0; i < num_f32_vars; i++) {
+      s.write.local_name(local_index++);
+      s.cur_local_types().push_back(Type::F32);
+      s.write.ascii('=');
+      s.write.name(HotStdLib::FRound);
+      s.write.ascii("(0)");
+      if (local_index != num_locals)
+        s.write.ascii(',');
+    }
+    for (uint32_t i = 0; i < num_f64_vars; i++) {
+      s.write.local_name(local_index++);
+      s.cur_local_types().push_back(Type::F64);
+      s.write.ascii("=0.");
+      if (local_index != num_locals)
+        s.write.ascii(',');
     }
     s.write.ascii(";\n");
   }
+}
+
+void
+function_definition(State& s, size_t func_index)
+{
+  s.write.ascii("function ");
+  s.write_func_name(func_index);
+  s.write.ascii('(');
+
+  const Signature& sig = s.func_sig(func_index);
+  s.set_cur_ret(sig.ret);
+  s.cur_local_types().clear();
+  args(s, sig);
+  vars(s);
 
   stmt_list(s);
 

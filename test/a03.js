@@ -28,11 +28,11 @@ var $s=$a.Math.pow;
 var $t=$a.Math.clz32;
 function $u(k,l){
 k=k|0;l=+l;
-var m=0,n=0.,o=j(0);
+var m=0,n=j(0),o=0.;
 }
 function $v(k){
 k=+k;
-var l=0.,m=0,n=j(0);
+var l=0,m=j(0),n=0.;
 }
 return $u;
 }
