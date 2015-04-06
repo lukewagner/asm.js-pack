@@ -7,12 +7,12 @@ out/asmjspack: asmjspack.cpp pack.cpp pack.h unpack.cpp unpack.h shared.h cashew
 
 out/asmjsunpack: asmjsunpack.cpp unpack.cpp unpack.h shared.h
 	mkdir -p out
-	c++ -O3 -g -std=c++11 -Wall -pedantic -o out/asmjsunpack \
+	c++ -DNDEBUG -O3 -g -std=c++11 -Wall -pedantic -o out/asmjsunpack \
 	    asmjsunpack.cpp unpack.cpp
 
 out/asmjsunpack.js: asmjsunpack.cpp unpack.cpp unpack.h shared.h
 	mkdir -p out
-	emcc -O3 --memory-init-file 0 --llvm-lto 1 -s TOTAL_MEMORY=50331648 -std=c++11 -Wall -pedantic -o out/asmjsunpack.js \
+	emcc -DNDEBUG -O3 --memory-init-file 0 --llvm-lto 1 -s TOTAL_MEMORY=50331648 -std=c++11 -Wall -pedantic -o out/asmjsunpack.js \
 	     asmjsunpack.cpp unpack.cpp
 
 .PHONY: test

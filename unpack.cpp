@@ -85,8 +85,10 @@ class Utf8Writer
     limit_ = bytes_.data() + bytes_.size();
   }
 #else
+# ifndef NDEBUG
   uint8_t* const begin_;
   const uint32_t unpacked_size_;
+# endif
 
   void inline check_write(size_t bytes_to_write)
   {
@@ -161,7 +163,13 @@ public:
     return move(bytes_);
   }
 #else
-  Utf8Writer(uint32_t sz, uint8_t* begin) : cur_(begin), begin_(begin), unpacked_size_(sz) {}
+  Utf8Writer(uint32_t sz, uint8_t* begin)
+  : cur_(begin)
+#ifndef NDEBUG
+  , begin_(begin)
+  , unpacked_size_(sz)
+#endif
+  {}
 
   void finish()
   {
@@ -404,7 +412,8 @@ public:
   , read(in)
   , write(out_size, out)
   {
-    assert(out_size == read.fixed_width<uint32_t>());
+    if (out_size != read.fixed_width<uint32_t>())
+      abort();
   }
 #endif
 
