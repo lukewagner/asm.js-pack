@@ -10,10 +10,10 @@ out/asmjsunpack: asmjsunpack.cpp unpack.cpp unpack.h shared.h
 	c++ -O3 -g -std=c++11 -Wall -pedantic -o out/asmjsunpack \
 	    asmjsunpack.cpp unpack.cpp
 
-out/raw-unpack.js: unpack.cpp shared.h
-	touch out/raw-unpack.js
-
-out/asmjsunpack.js: out/raw-unpack.js
+out/asmjsunpack.js: asmjsunpack.cpp unpack.cpp unpack.h shared.h
+	mkdir -p out
+	emcc -O3 --memory-init-file 0 --llvm-lto 1 -s TOTAL_MEMORY=50000000 -std=c++11 -Wall -pedantic -o out/asmjsunpack.js \
+	     asmjsunpack.cpp unpack.cpp
 
 .PHONY: test
 test: out/asmjspack out/asmjsunpack
@@ -34,4 +34,4 @@ test: out/asmjspack out/asmjsunpack
 
 .PHONY: clean
 clean:
-	rm out/asmjspack out/asmjsunpack out/raw-unpack.js
+	rm out/asmjspack out/asmjsunpack out/asmjsunpack.js

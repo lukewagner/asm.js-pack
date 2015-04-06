@@ -5,7 +5,9 @@
 #include "shared.h"
 
 #include <algorithm>
-#include <cstring>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 using namespace std;
 

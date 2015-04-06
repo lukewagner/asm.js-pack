@@ -2,49 +2,62 @@
 
 #include "unpack.h"
 
-#include <stdexcept>
-#include <iostream>
-#include <fstream>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string>
+
+#ifdef EMSCRIPTEN
+# include <emscripten.h>
+#endif
 
 using namespace std;
 
 int
 main(int argc, char** argv)
-try
 {
   if (argc != 3 || !argv[1] || !argv[2]) {
-    cerr << "Usage: asmjsunpack in.asm out.js" << endl;
+    fprintf(stderr, "Usage: asmjsunpack in.asm out.js");
     return -1;
   }
 
+  string in_file_name = argv[1];
+  string out_file_name = argv[2];
+
+#ifdef EMSCRIPTEN
+  in_file_name = "fs/" + in_file_name;
+  out_file_name = "fs/" + out_file_name;
+  EM_ASM(
+          FS.mkdir('fs');
+          FS.mount(NODEFS, { root: '.' }, '/fs');
+  );
+#endif
+
   // Read in packed .asm file bytes.
   vector<uint8_t> in_bytes;
-  ifstream in_stream(argv[1], ios::binary | ios::ate);
-  in_stream.exceptions(ios::failbit | ios::badbit);
-  in_bytes.resize(in_stream.tellg());
-  in_stream.seekg(0);
-  in_stream.read((char*)in_bytes.data(), in_bytes.size());
-  in_stream.close();
+  FILE* in_file = fopen(in_file_name.c_str(), "rb");
+  if (!in_file) {
+      fprintf(stderr, "Unable to open %s to read\n", in_file_name.c_str());
+      return -1;
+  }
+  fseek(in_file, 0, SEEK_END);
+  in_bytes.resize(ftell(in_file));
+  fseek(in_file, 0, SEEK_SET);
+  if (fread(in_bytes.data(), 1, in_bytes.size(), in_file) != in_bytes.size())
+      abort();
+  fclose(in_file);
 
   // Unpack .asm file into utf8 chars.
   vector<uint8_t> out_bytes(asmjs::read_unpacked_size(in_bytes.data()));
   asmjs::unpack(in_bytes.data(), out_bytes.size(), out_bytes.data());
 
   // Write the utf8 chars out to a .js file.
-  ofstream out_stream(argv[2], ios::binary);
-  out_stream.exceptions(ios::failbit | ios::badbit);
-  out_stream.write((char*)out_bytes.data(), out_bytes.size());
-  out_stream.close();
+  FILE* out_file = fopen(out_file_name.c_str(), "wb");
+  if (!out_file) {
+      fprintf(stderr, "Unable to open %s to write\n", out_file_name.c_str());
+      return -1;
+  }
+  fwrite(out_bytes.data(), 1, out_bytes.size(), out_file);
+  fclose(out_file);
 
   return 0;
-}
-catch(const ios::failure& err)
-{
-  cerr << "Failed with runtime error: " << err.what() << endl;
-  return -1;
-}
-catch(const runtime_error& err)
-{
-  cerr << "Failed with runtime error: " << err.what() << endl;
-  return -1;
 }

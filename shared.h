@@ -3,9 +3,8 @@
 #ifndef shared_h_
 #define shared_h_
 
-#include <ostream>
-#include <cstdint>
-#include <cassert>
+#include <stdint.h>
+#include <assert.h>
 #include <vector>
 
 namespace asmjs {
@@ -502,35 +501,6 @@ struct Signature
 
 // =================================================================================================
 
-class Out
-{
-  std::ostream& os_;
-
-  template <class T> void u8(T t) { os_.put(uint8_t(t)); }
-
-public:
-  Out(std::ostream& os) : os_(os) {}
-
-  template <class T> void fixed_width(T);
-  void code(Stmt s) { u8(s); }
-  void code(SwitchCase c) { u8(c); }
-  void code(I32 i) { assert(i < I32::Bad); u8(i); }
-  void code(F32 f) { assert(f < F32::Bad); u8(f); }
-  void code(F64 f) { assert(f < F64::Bad); u8(f); }
-  void code(Void v) { assert(v < Void::Bad); u8(v); }
-  void code(Expr e) { u8(e.raw_code()); }
-  void code(ExportFormat f) { u8(f); }
-  void code(Type t) { u8(t); }
-  void code(RType t) { u8(t); }
-  void code(VarTypes t) { u8(t); }
-  inline void code(ExprWithImm, uint8_t);
-  inline void code(StmtWithImm, uint8_t);
-  inline void code(VarTypesWithImm, uint8_t);
-  inline void imm_u32(uint32_t u32);
-  inline void imm_s32(int32_t s32);
-  void c_str(const char*);
-};
-
 class In
 {
   const uint8_t* cur_;
@@ -555,18 +525,6 @@ public:
   inline bool if_i32_lit(const std::vector<uint32_t>& i32s, uint32_t* u32);
   inline bool is_next_node_block();
 };
-
-template <class T>
-void
-Out::fixed_width(T t)
-{
-  union {
-    T t;
-    uint8_t arr[sizeof(T)];
-  } u = { t };
-  for (auto u8 : u.arr)
-    os_.put(u8);
-}
 
 template <>
 uint32_t inline
@@ -601,27 +559,6 @@ In::fixed_width<double>()
   return u.d;
 }
 
-void inline
-Out::code(ExprWithImm e, uint8_t imm)
-{
-  assert(imm < ImmLimit);
-  u8(PackOpWithImm(e.raw_code(), imm));
-}
-
-void inline
-Out::code(StmtWithImm s, uint8_t imm)
-{
-  assert(imm < ImmLimit);
-  u8(PackOpWithImm(uint8_t(s), imm));
-}
-
-void inline
-Out::code(VarTypesWithImm l, uint8_t imm)
-{
-  assert(imm < ImmLimit);
-  u8(PackOpWithImm(uint8_t(l), imm));
-}
-
 template <class T, class TWithImm>
 bool
 In::code(T* t, TWithImm* t_with_imm, uint8_t* imm)
@@ -634,21 +571,6 @@ In::code(T* t, TWithImm* t_with_imm, uint8_t* imm)
 
   UnpackOpWithImm(byte, t_with_imm, imm);
   return false;
-}
-
-void
-Out::imm_u32(uint32_t u32)
-{
-  if (u32)
-    for (; true; u32 >>= 7) {
-      if (u32 < 0x80) {
-        os_.put(u32);
-        return;
-      }
-      os_.put(0x80 | (u32 & 0x7f));
-    }
-  else
-    os_.put(0);
 }
 
 uint32_t inline
@@ -666,21 +588,6 @@ In::imm_u32()
       return u32 | (b << shift);
     u32 |= (b & 0x7f) << shift;
   }
-}
-
-void
-Out::imm_s32(int32_t s32)
-{
-  if (s32)
-    for (; true; s32 >>= 7) {
-      if (-64 <= s32 && s32 < 64) {
-        os_.put(s32 & 0x7f);
-        return;
-      }
-      os_.put(0x80 | (s32 & 0x7f));
-    }
-  else
-    os_.put(0);
 }
 
 int32_t inline
@@ -751,14 +658,6 @@ In::is_next_node_block()
   static_assert(uint32_t(Stmt::Block) < 0x80,
                 "We can fetch the code in a single byte");
   return Stmt(*cur_) == Stmt::Block;
-}
-
-inline void
-Out::c_str(const char* p)
-{
-  do {
-    os_.put(*p);
-  } while(*p++);
 }
 
 }  // namespace asmjs
