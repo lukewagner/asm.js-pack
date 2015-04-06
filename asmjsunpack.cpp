@@ -23,10 +23,10 @@ main(int argc, char** argv)
   const char* in_file_name = argv[1];
   const char* out_file_name = argv[2];
 #ifdef EMSCRIPTEN
-  char in_file_buf[PATH_MAX] = "fs/";
-  char out_file_buf[PATH_MAX] = "fs/";
-  strcat(in_file_buf, in_file_name);
-  strcat(out_file_buf, out_file_buf);
+  char in_file_buf[1024] = "fs/";
+  char out_file_buf[1024] = "fs/";
+  strlcat(in_file_buf, in_file_name, sizeof(in_file_buf));
+  strlcat(out_file_buf, out_file_name, sizeof(out_file_buf));
   in_file_name = in_file_buf;
   out_file_name = out_file_buf;
   EM_ASM(
