@@ -2,9 +2,9 @@
 
 #include "unpack.h"
 
+#include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <string>
 
 #ifdef EMSCRIPTEN
 # include <emscripten.h>
@@ -20,12 +20,15 @@ main(int argc, char** argv)
     return -1;
   }
 
-  string in_file_name = argv[1];
-  string out_file_name = argv[2];
-
+  const char* in_file_name = argv[1];
+  const char* out_file_name = argv[2];
 #ifdef EMSCRIPTEN
-  in_file_name = "fs/" + in_file_name;
-  out_file_name = "fs/" + out_file_name;
+  char in_file_buf[PATH_MAX] = "fs/";
+  char out_file_buf[PATH_MAX] = "fs/";
+  strcat(in_file_buf, in_file_name);
+  strcat(out_file_buf, out_file_buf);
+  in_file_name = in_file_buf;
+  out_file_name = out_file_buf;
   EM_ASM(
           FS.mkdir('fs');
           FS.mount(NODEFS, { root: '.' }, '/fs');
@@ -34,9 +37,9 @@ main(int argc, char** argv)
 
   // Read in packed .asm file bytes.
   vector<uint8_t> in_bytes;
-  FILE* in_file = fopen(in_file_name.c_str(), "rb");
+  FILE* in_file = fopen(in_file_name, "rb");
   if (!in_file) {
-      fprintf(stderr, "Unable to open %s to read\n", in_file_name.c_str());
+      fprintf(stderr, "Unable to open %s to read\n", in_file_name);
       return -1;
   }
   fseek(in_file, 0, SEEK_END);
@@ -51,9 +54,9 @@ main(int argc, char** argv)
   asmjs::unpack(in_bytes.data(), out_bytes.size(), out_bytes.data());
 
   // Write the utf8 chars out to a .js file.
-  FILE* out_file = fopen(out_file_name.c_str(), "wb");
+  FILE* out_file = fopen(out_file_name, "wb");
   if (!out_file) {
-      fprintf(stderr, "Unable to open %s to write\n", out_file_name.c_str());
+      fprintf(stderr, "Unable to open %s to write\n", out_file_name);
       return -1;
   }
   fwrite(out_bytes.data(), 1, out_bytes.size(), out_file);
