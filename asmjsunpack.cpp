@@ -2,65 +2,54 @@
 
 #include "unpack.h"
 
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
-
-#ifdef EMSCRIPTEN
-# include <emscripten.h>
-#endif
+#include <stdexcept>
+#include <iostream>
+#include <fstream>
 
 using namespace std;
 
 int
 main(int argc, char** argv)
+try
 {
-  if (argc != 3 || !argv[1] || !argv[2]) {
-    fprintf(stderr, "Usage: asmjsunpack in.asm out.js");
+  if (argc < 3 || argc > 4) {
+    cerr <<  "Usage: asmjsunpack in.asm out.js [name]" << endl;
     return -1;
   }
 
   const char* in_file_name = argv[1];
   const char* out_file_name = argv[2];
-#ifdef EMSCRIPTEN
-  char in_file_buf[1024] = "fs/";
-  char out_file_buf[1024] = "fs/";
-  strlcat(in_file_buf, in_file_name, sizeof(in_file_buf));
-  strlcat(out_file_buf, out_file_name, sizeof(out_file_buf));
-  in_file_name = in_file_buf;
-  out_file_name = out_file_buf;
-  EM_ASM(
-          FS.mkdir('fs');
-          FS.mount(NODEFS, { root: '.' }, '/fs');
-  );
-#endif
+  const char* name = argc > 3 ? argv[3] : nullptr;
 
   // Read in packed .asm file bytes.
   vector<uint8_t> in_bytes;
-  FILE* in_file = fopen(in_file_name, "rb");
-  if (!in_file) {
-      fprintf(stderr, "Unable to open %s to read\n", in_file_name);
-      return -1;
-  }
-  fseek(in_file, 0, SEEK_END);
-  in_bytes.resize(ftell(in_file));
-  fseek(in_file, 0, SEEK_SET);
-  if (fread(in_bytes.data(), 1, in_bytes.size(), in_file) != in_bytes.size())
-      abort();
-  fclose(in_file);
+  ifstream in_stream(in_file_name, ios::binary | ios::ate);
+  in_stream.exceptions(ios::failbit | ios::badbit);
+  in_bytes.resize(in_stream.tellg());
+  in_stream.seekg(0);
+  in_stream.read((char*)in_bytes.data(), in_bytes.size());
+  in_stream.close();
 
   // Unpack .asm file into utf8 chars.
-  vector<uint8_t> out_bytes(asmjs::read_unpacked_size(in_bytes.data()));
-  asmjs::unpack(in_bytes.data(), out_bytes.size(), out_bytes.data());
+  uint32_t unpacked_size = asmjs::unpacked_size(in_bytes.data(), name);
+  vector<uint8_t> out_bytes(unpacked_size);
+  asmjs::unpack(in_bytes.data(), name, out_bytes.size(), out_bytes.data());
 
   // Write the utf8 chars out to a .js file.
-  FILE* out_file = fopen(out_file_name, "wb");
-  if (!out_file) {
-      fprintf(stderr, "Unable to open %s to write\n", out_file_name);
-      return -1;
-  }
-  fwrite(out_bytes.data(), 1, out_bytes.size(), out_file);
-  fclose(out_file);
+  ofstream out_stream(out_file_name, ios::binary);
+  out_stream.exceptions(ios::failbit | ios::badbit);
+  out_stream.write((char*)out_bytes.data(), out_bytes.size());
+  out_stream.close();
 
   return 0;
+}
+catch (const ios::failure& err)
+{
+  cerr << "Failed with iostream error: " << err.what() << endl;
+  return -1;
+}
+catch(const runtime_error& err)
+{
+  cerr << "Failed with runtime error: " << err.what() << endl;
+  return -1;
 }

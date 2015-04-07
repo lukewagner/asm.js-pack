@@ -17,6 +17,8 @@ using namespace std;
 
 // TODO:
 //  - Use pool allocator for vector et al to avoid malloc (or at least inline allocation).
+//  - include ascii magic number (to ensure we got the right file)
+//  - add a built-with-version to easily catch tool mismatches
 
 namespace asmjs {
 
@@ -160,12 +162,7 @@ public:
 
 #ifdef CHECKED_OUTPUT_SIZE
   Utf8Writer() : cur_(nullptr), limit_(nullptr) {}
-
-  vector<uint8_t> finish()
-  {
-    bytes_.resize(cur_ - bytes_.data());
-    return move(bytes_);
-  }
+  uint32_t finish() { return cur_ - bytes_.data(); }
 #else
   Utf8Writer(uint32_t sz, uint8_t* begin)
   : cur_(begin)
@@ -208,6 +205,12 @@ public:
     }
     check_write(1);
     *cur_++ = c;
+  }
+
+  void dynamic_ascii(const char *str)
+  {
+    while (*str)
+      ascii(*str++);
   }
 
   void uint32(uint32_t u32)
@@ -416,8 +419,7 @@ public:
   , read(in)
   , write(out_size, out)
   {
-    if (out_size != read.fixed_width<uint32_t>())
-      abort();
+    (void)read.fixed_width<uint32_t>();
   }
 #endif
 
@@ -2279,8 +2281,12 @@ import_hot_stdlib(State& s, HotStdLib global, const char (&import)[N])
 }
 
 void
-unpack(State& s)
+unpack(State& s, const char* cb_name)
 {
+  if (cb_name) {
+    s.write.dynamic_ascii(cb_name);
+    s.write.ascii('(');
+  }
   s.write.ascii("function asmModule(");
   s.write.name(StdLib::stdlib);
   s.write.ascii(',');
@@ -2326,35 +2332,39 @@ unpack(State& s)
   write_function_pointer_tables(s);
   export_section(s);
 
-  s.write.ascii("}\n");
+  s.write.ascii('}');
+  if (cb_name)
+    s.write.ascii(')');
+  s.write.ascii('\n');
 }
 
 }  // namespace asmjs
 
 #ifdef CHECKED_OUTPUT_SIZE
 
-vector<uint8_t>
-asmjs::unpack(const uint8_t* packed)
+uint32_t
+asmjs::calculate_unpacked_size(const uint8_t* packed)
 {
   State s(packed);
-  unpack(s);
+  unpack(s, nullptr);
   return s.write.finish();
 }
 
 #else
 
 uint32_t
-asmjs::read_unpacked_size(const uint8_t* packed)
+asmjs::unpacked_size(const uint8_t* packed, const char* cb_name)
 {
   In in(packed);
-  return in.fixed_width<uint32_t>();
+  return in.fixed_width<uint32_t>() +
+         (cb_name ? (strlen(cb_name) + 2) : 0);  // cb_name(....)
 }
 
 void
-asmjs::unpack(const uint8_t* packed, uint32_t unpacked_size, uint8_t* unpacked)
+asmjs::unpack(const uint8_t* packed, const char* cb_name, uint32_t unpacked_size, uint8_t* unpacked)
 {
   State s(packed, unpacked_size, unpacked);
-  unpack(s);
+  unpack(s, cb_name);
   s.write.finish();
 }
 
@@ -2364,15 +2374,15 @@ asmjs::unpack(const uint8_t* packed, uint32_t unpacked_size, uint8_t* unpacked)
 extern "C" {
 
 uint32_t EMSCRIPTEN_KEEPALIVE
-asmjs_read_unpacked_size(const uint8_t* packed)
+asmjs_unpacked_size(const uint8_t* packed, const char* cb_name)
 {
-  return asmjs::read_unpacked_size(packed);
+  return asmjs::unpacked_size(packed, cb_name);
 }
 
 void EMSCRIPTEN_KEEPALIVE
-asmjs_unpack(const uint8_t* packed, uint32_t unpacked_size, uint8_t* unpacked)
+asmjs_unpack(const uint8_t* packed, const char* cb_name, uint32_t unpacked_size, uint8_t* unpacked)
 {
-  asmjs::unpack(packed, unpacked_size, unpacked);
+  asmjs::unpack(packed, cb_name, unpacked_size, unpacked);
 }
 
 // Temporary workaround until Emscripten has no-exception-handling libstdc++ to avoid pulling in

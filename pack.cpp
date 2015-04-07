@@ -1461,7 +1461,6 @@ extract_var_init(Module& m, const AstNode& init)
 
   NumLit lit(m, init);
 
-  // TODO: ignore non-zero for now, Emscripten only emits zero.
   assert((lit.type() == Type::I32 && lit.uint32() == 0) ||
          (lit.type() == Type::F32 && lit.float32() == 0) ||
          (lit.type() == Type::F64 && lit.float64() == 0));

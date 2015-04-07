@@ -38,7 +38,7 @@ try
   vector<uint8_t> out_bytes(out_stream.tellp());
   out_stream.seekg(0);
   out_stream.read((char*)out_bytes.data(), out_bytes.size());
-  uint32_t unpacked_size = asmjs::unpack(out_bytes.data()).size();
+  uint32_t unpacked_size = asmjs::calculate_unpacked_size(out_bytes.data());
   asmjs::patch_unpacked_size(out_stream, unpacked_size);
 
   return 0;

@@ -1,4 +1,4 @@
-default: out/asmjspack out/asmjsunpack out/asmjsunpack-raw.js
+default: out/asmjspack out/asmjsunpack out/asmjsunpack.js out/unpack-worker.js
 
 out/asmjspack: asmjspack.cpp pack.cpp pack.h unpack.cpp unpack.h shared.h cashew/parser.h cashew/parser.cpp cashew/istring.h
 	mkdir -p out
@@ -7,13 +7,23 @@ out/asmjspack: asmjspack.cpp pack.cpp pack.h unpack.cpp unpack.h shared.h cashew
 
 out/asmjsunpack: asmjsunpack.cpp unpack.cpp unpack.h shared.h
 	mkdir -p out
-	c++ -DNDEBUG -O3 -g -std=c++11 -Wall -pedantic -o out/asmjsunpack \
-	    asmjsunpack.cpp unpack.cpp
+	c++ -DNDEBUG -O3 -std=c++11 -Wall -pedantic \
+	    asmjsunpack.cpp unpack.cpp \
+	    -o out/asmjsunpack
 
-out/asmjsunpack-raw.js: asmjsunpack.cpp unpack.cpp unpack.h shared.h
-	mkdir -p out
-	emcc -DNDEBUG -O3 --memory-init-file 0 --llvm-lto 1 -s TOTAL_MEMORY=50331648 -std=c++11 -Wall -pedantic -o out/asmjsunpack-raw.js \
-	     unpack.cpp
+obj/unpack.js: unpack.cpp unpack.h shared.h
+	mkdir -p obj
+	emcc -DNDEBUG -O3 -std=c++11 -Wall -pedantic \
+	     --memory-init-file 0 --llvm-lto 1 -s ALLOW_MEMORY_GROWTH=1 \
+	     unpack.cpp \
+	     -o obj/unpack.js
+
+out/unpack-worker.js: obj/unpack.js unpack-worker.js
+	cat obj/unpack.js unpack-worker.js > out/unpack-worker.js
+
+out/asmjsunpack.js: asmjsunpack.js
+	mkdir -p obj
+	cp asmjsunpack.js out/asmjsunpack.js
 
 .PHONY: test
 test: out/asmjspack out/asmjsunpack
@@ -34,4 +44,4 @@ test: out/asmjspack out/asmjsunpack
 
 .PHONY: clean
 clean:
-	rm out/asmjspack out/asmjsunpack out/asmjsunpack-raw.js
+	rm -f out/asmjspack out/asmjsunpack out/asmjsunpack.js obj/unpack.js out/unpack-worker.js
