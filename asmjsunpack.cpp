@@ -64,11 +64,3 @@ main(int argc, char** argv)
 
   return 0;
 }
-
-#ifdef EMSCRIPTEN
-// Temporary workaround until Emscripten has no-exception-handling libstdc++ to avoid pulling in
-// all of iostream/locales/string.
-extern "C" {
-void _ZNKSt3__120__vector_base_commonILb1EE20__throw_length_errorEv() {}
-}
-#endif

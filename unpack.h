@@ -6,7 +6,6 @@
 
 namespace asmjs {
 
-// TODO: comment
 #ifdef CHECKED_OUTPUT_SIZE
 
 std::vector<uint8_t> unpack(const uint8_t* packed);

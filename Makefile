@@ -1,4 +1,4 @@
-default: out/asmjspack out/asmjsunpack out/asmjsunpack.js
+default: out/asmjspack out/asmjsunpack out/asmjsunpack-raw.js
 
 out/asmjspack: asmjspack.cpp pack.cpp pack.h unpack.cpp unpack.h shared.h cashew/parser.h cashew/parser.cpp cashew/istring.h
 	mkdir -p out
@@ -10,10 +10,10 @@ out/asmjsunpack: asmjsunpack.cpp unpack.cpp unpack.h shared.h
 	c++ -DNDEBUG -O3 -g -std=c++11 -Wall -pedantic -o out/asmjsunpack \
 	    asmjsunpack.cpp unpack.cpp
 
-out/asmjsunpack.js: asmjsunpack.cpp unpack.cpp unpack.h shared.h
+out/asmjsunpack-raw.js: asmjsunpack.cpp unpack.cpp unpack.h shared.h
 	mkdir -p out
-	emcc -DNDEBUG -O3 --memory-init-file 0 --llvm-lto 1 -s TOTAL_MEMORY=50331648 -std=c++11 -Wall -pedantic -o out/asmjsunpack.js \
-	     asmjsunpack.cpp unpack.cpp
+	emcc -DNDEBUG -O3 --memory-init-file 0 --llvm-lto 1 -s TOTAL_MEMORY=50331648 -std=c++11 -Wall -pedantic -o out/asmjsunpack-raw.js \
+	     unpack.cpp
 
 .PHONY: test
 test: out/asmjspack out/asmjsunpack
@@ -34,4 +34,4 @@ test: out/asmjspack out/asmjsunpack
 
 .PHONY: clean
 clean:
-	rm out/asmjspack out/asmjsunpack out/asmjsunpack.js
+	rm out/asmjspack out/asmjsunpack out/asmjsunpack-raw.js

@@ -9,6 +9,10 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#ifdef EMSCRIPTEN
+# include <emscripten.h>
+#endif
+
 using namespace std;
 
 // TODO:
@@ -2356,3 +2360,26 @@ asmjs::unpack(const uint8_t* packed, uint32_t unpacked_size, uint8_t* unpacked)
 
 #endif
 
+#ifdef EMSCRIPTEN
+extern "C" {
+
+uint32_t EMSCRIPTEN_KEEPALIVE
+asmjs_read_unpacked_size(const uint8_t* packed)
+{
+  return asmjs::read_unpacked_size(packed);
+}
+
+void EMSCRIPTEN_KEEPALIVE
+asmjs_unpack(const uint8_t* packed, uint32_t unpacked_size, uint8_t* unpacked)
+{
+  asmjs::unpack(packed, unpacked_size, unpacked);
+}
+
+// Temporary workaround until Emscripten has no-exception-handling libstdc++ to avoid pulling in
+// all of iostream/locales/string.
+void
+_ZNKSt3__120__vector_base_commonILb1EE20__throw_length_errorEv()
+{}
+
+}  // extern "C"
+#endif
