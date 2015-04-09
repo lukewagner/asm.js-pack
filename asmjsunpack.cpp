@@ -30,6 +30,11 @@ try
   in_stream.read((char*)in_bytes.data(), in_bytes.size());
   in_stream.close();
 
+  if (!asmjs::has_magic_number(in_bytes.data())) {
+    cerr << in_file_name << " isn't a packed asm.js file" << endl;
+    return -1;
+  }
+
   // Unpack .asm file into utf8 chars.
   uint32_t unpacked_size = asmjs::unpacked_size(in_bytes.data(), name);
   vector<uint8_t> out_bytes(unpacked_size);

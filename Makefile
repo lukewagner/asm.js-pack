@@ -1,9 +1,10 @@
-default: out/asmjspack out/asmjsunpack out/asmjsunpack.js out/unpack-worker.js
+default: out/asmjspack out/asmjsunpack out/asmjsunpack.js out/asmjsunpack-shell.js
 
 out/asmjspack: asmjspack.cpp pack.cpp pack.h unpack.cpp unpack.h shared.h cashew/parser.h cashew/parser.cpp cashew/istring.h
 	mkdir -p out
-	c++ -O3 -g -std=c++11 -DCHECKED_OUTPUT_SIZE -Wall -pedantic -o out/asmjspack \
-	    asmjspack.cpp pack.cpp unpack.cpp cashew/parser.cpp
+	c++ -O3 -g -std=c++11 -DCHECKED_OUTPUT_SIZE -Wall -pedantic \
+	    asmjspack.cpp pack.cpp unpack.cpp cashew/parser.cpp \
+	    -o out/asmjspack
 
 out/asmjsunpack: asmjsunpack.cpp unpack.cpp unpack.h shared.h
 	mkdir -p out
@@ -18,12 +19,14 @@ obj/unpack.js: unpack.cpp unpack.h shared.h
 	     unpack.cpp \
 	     -o obj/unpack.js
 
-out/unpack-worker.js: obj/unpack.js unpack-worker.js
-	cat obj/unpack.js unpack-worker.js > out/unpack-worker.js
-
-out/asmjsunpack.js: asmjsunpack.js
+out/asmjsunpack.js: asmjsunpack.js obj/unpack.js unpack.js asmjsunpack-worker.js
 	mkdir -p obj
+	cat obj/unpack.js unpack.js asmjsunpack-worker.js > out/asmjsunpack-worker.js
 	cp asmjsunpack.js out/asmjsunpack.js
+
+out/asmjsunpack-shell.js: obj/unpack.js asmjsunpack-shell.js
+	mkdir -p obj
+	cat obj/unpack.js unpack.js asmjsunpack-shell.js > out/asmjsunpack-shell.js
 
 .PHONY: test
 test: out/asmjspack out/asmjsunpack
@@ -44,4 +47,5 @@ test: out/asmjspack out/asmjsunpack
 
 .PHONY: clean
 clean:
-	rm -f out/asmjspack out/asmjsunpack out/asmjsunpack.js obj/unpack.js out/unpack-worker.js
+	rm -f out/asmjspack out/asmjsunpack out/asmjsunpack.js obj/unpack.js \
+          out/asmjsunpack-worker.js out/asmjsunpack-shell.js

@@ -12,6 +12,8 @@ namespace asmjs {
 // =================================================================================================
 // Magic serialization constants
 
+static const uint32_t MagicNumber = 0x6d736177;
+
 enum class Stmt : uint8_t
 {
   SetLoc,

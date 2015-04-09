@@ -2865,6 +2865,8 @@ write_export_section(Module& m)
 void
 write_module(Module& m)
 {
+  m.write().fixed_width<uint32_t>(MagicNumber);
+
   // Bogus unpacked-size; to be patched in patch_unpacked_size.
   m.write().fixed_width<uint32_t>(UINT32_MAX);
 
@@ -3070,7 +3072,7 @@ asmjs::parse(char* src)
 void
 asmjs::patch_unpacked_size(std::ostream& os, uint32_t unpacked_size)
 {
-  os.seekp(0);
+  os.seekp(sizeof(uint32_t));
   Out out(os);
   out.fixed_width<uint32_t>(unpacked_size);
 }

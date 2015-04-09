@@ -384,6 +384,14 @@ struct FuncPtrTable
   vector<uint32_t> elems;
 };
 
+uint32_t
+cb_name_len(const char* cb_name)
+{
+  if (!cb_name)
+    return 0;
+  return strlen(cb_name) + 2;  // cb_name(...)
+}
+
 class State
 {
   vector<Signature> sigs_;
@@ -411,15 +419,20 @@ public:
   : num_labels_(0)
   , read(in)
   {
+    if (read.fixed_width<uint32_t>() != MagicNumber)
+      abort();
     (void)read.fixed_width<uint32_t>();
   }
 #else
-  State(const uint8_t* in, uint32_t out_size, uint8_t* out)
+  State(const uint8_t* in, const char* cb_name, uint32_t out_size, uint8_t* out)
   : num_labels_(0)
   , read(in)
   , write(out_size, out)
   {
-    (void)read.fixed_width<uint32_t>();
+    if (read.fixed_width<uint32_t>() != MagicNumber)
+      abort();
+    if (read.fixed_width<uint32_t>() != out_size - cb_name_len(cb_name))
+      abort();
   }
 #endif
 
@@ -2352,18 +2365,26 @@ asmjs::calculate_unpacked_size(const uint8_t* packed)
 
 #else
 
+bool
+asmjs::has_magic_number(const uint8_t* packed)
+{
+  In in(packed);
+  return in.fixed_width<uint32_t>() == MagicNumber;
+}
+
 uint32_t
 asmjs::unpacked_size(const uint8_t* packed, const char* cb_name)
 {
   In in(packed);
-  return in.fixed_width<uint32_t>() +
-         (cb_name ? (strlen(cb_name) + 2) : 0);  // cb_name(....)
+  if (in.fixed_width<uint32_t>() != MagicNumber)
+    abort();
+  return in.fixed_width<uint32_t>() + cb_name_len(cb_name);
 }
 
 void
 asmjs::unpack(const uint8_t* packed, const char* cb_name, uint32_t unpacked_size, uint8_t* unpacked)
 {
-  State s(packed, unpacked_size, unpacked);
+  State s(packed, cb_name, unpacked_size, unpacked);
   unpack(s, cb_name);
   s.write.finish();
 }
@@ -2372,6 +2393,12 @@ asmjs::unpack(const uint8_t* packed, const char* cb_name, uint32_t unpacked_size
 
 #ifdef EMSCRIPTEN
 extern "C" {
+
+bool EMSCRIPTEN_KEEPALIVE
+asmjs_has_magic_number(const uint8_t* packed)
+{
+  return asmjs::has_magic_number(packed);
+}
 
 uint32_t EMSCRIPTEN_KEEPALIVE
 asmjs_unpacked_size(const uint8_t* packed, const char* cb_name)
