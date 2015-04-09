@@ -15,7 +15,7 @@ out/asmjsunpack: asmjsunpack.cpp unpack.cpp unpack.h shared.h
 obj/unpack.js: unpack.cpp unpack.h shared.h
 	mkdir -p obj
 	emcc -DNDEBUG -O3 -std=c++11 -Wall -pedantic \
-	     --memory-init-file 0 --llvm-lto 1 -s ALLOW_MEMORY_GROWTH=1 \
+	     --memory-init-file 0 --llvm-lto 1 -s TOTAL_MEMORY=67108864 \
 	     unpack.cpp \
 	     -o obj/unpack.js
 
