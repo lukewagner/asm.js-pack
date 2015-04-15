@@ -20,14 +20,13 @@ var unpackAsmJS = (function() {
       var worker = new Worker(workerURL);
       worker.postMessage({url:packedURL, callbackName:callbackName});
       worker.onmessage = function (e) {
-        if (!(e.data instanceof Int8Array)) {
+        if (!(e.data instanceof Blob)) {
           reject("unpack-worker.js failed with: " + e.data);
           return;
         }
 
-        var blob = new Blob([e.data]);
         var script = document.createElement('script');
-        var url = URL.createObjectURL(blob);
+        var url = URL.createObjectURL(e.data);
         script.onload = script.onerror = function() { URL.revokeObjectURL(url) }
         script.src = url;
         document.body.appendChild(script);
