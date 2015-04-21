@@ -26,5 +26,6 @@ onmessage = function(e) {
     }
   }
   xhr.send(null);
+  close();
 }
 
