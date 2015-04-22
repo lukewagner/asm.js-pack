@@ -15,17 +15,21 @@ onmessage = function(e) {
     postMessage('Loading ' + url + ' failed');
   }
   xhr.onload = function (e) {
-    try {
-      var bef = Date.now();
-      var utf8 = unpack(xhr.response, callbackName);
-      var aft = Date.now();
-      console.log("Unpack of " + url + " took " + (aft - bef) + "ms");
-      postMessage(new Blob([utf8]));
-    } catch (e) {
-      postMessage("Failed to unpack " + url + " in worker: " + e);
+    if (xhr.status !== 200) {
+      postMessage("failed to download " + url + " with status: " + xhr.statusText);
+    } else {
+      try {
+        var bef = Date.now();
+        var utf8 = unpack(xhr.response, callbackName);
+        var aft = Date.now();
+        console.log("unpack of " + url + " took " + (aft - bef) + "ms");
+        postMessage(new Blob([utf8]));
+      } catch (e) {
+        postMessage("failed to unpack " + url + ": " + e);
+      }
     }
+    self.close();
   }
   xhr.send(null);
-  close();
 }
 
