@@ -11,9 +11,9 @@ var unpackAsmJS = (function() {
       var callbackName = "";
       do {
         callbackName = "onFinishAsmJSUnpack_" + globalNameCounter++;
-      } while (Object.hasOwnProperty(window, this));
-      this[callbackName] = function(asmModule) {
-        delete this[callbackName];
+      } while (Object.hasOwnProperty(window, callbackName));
+      window[callbackName] = function(asmModule) {
+        delete window[callbackName];
         resolve(asmModule);
       }
 
